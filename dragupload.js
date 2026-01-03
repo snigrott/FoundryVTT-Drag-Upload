@@ -7,7 +7,8 @@
 Hooks.once('init', async () => {
     const usingTheForge = typeof ForgeVTT != "undefined" && ForgeVTT.usingTheForge;
 
-    game.settings.register("dragupload", "fileUploadSource", {
+    // Registers settings under the hyphenated "drag-upload" ID
+    game.settings.register("drag-upload", "fileUploadSource", {
         name: "Upload Source",
         scope: "world",
         config: !usingTheForge,
@@ -17,13 +18,13 @@ Hooks.once('init', async () => {
         onChange: async () => { await initializeDragUpload(); }
     });
 
-    game.settings.register("dragupload", "fileUploadFolder", {
+    game.settings.register("drag-upload", "fileUploadFolder", {
         name: "Upload Folder Path",
-        hint: "Example: dragupload/uploaded",
+        hint: "Example: drag-upload/uploaded",
         scope: "world",
         config: true,
         type: String,
-        default: "dragupload/uploaded",
+        default: "drag-upload/uploaded",
         onChange: async () => { await initializeDragUpload(); }
     });
 });
@@ -43,7 +44,7 @@ async function initializeDragUpload() {
     if (game.user.isGM || game.user.hasPermission(CONST.USER_PERMISSIONS.FILES_UPLOAD)) {
         await createFoldersIfMissing();
     }
-    const targetFolder = game.settings.get("dragupload", "fileUploadFolder");
+    const targetFolder = game.settings.get("drag-upload", "fileUploadFolder");
     window.dragUpload = {
         targetFolder: targetFolder.split("/").filter(x => x !== "").join("/")
     };
@@ -52,8 +53,7 @@ async function initializeDragUpload() {
 async function handleDrop(event) {
     event.preventDefault();
 
-    // Initialize as null to ensure a clean state for every event
-    let file = null;
+    let file = null; // Fresh start for every drop event
     const dataTransfer = event.dataTransfer;
     const files = dataTransfer.files;
 
@@ -99,7 +99,7 @@ async function handleDrop(event) {
 }
 
 async function CreateTile(event, file, overhead) {
-    const source = game.settings.get("dragupload", "fileUploadSource");
+    const source = game.settings.get("drag-upload", "fileUploadSource");
     const path = file.isExternalUrl ? file.url : (await FilePicker.upload(source, `${window.dragUpload.targetFolder}/tiles`, file)).path;
     const coords = convertXYtoCanvas(event);
     const tex = await loadTexture(path);
@@ -118,7 +118,7 @@ async function CreateTile(event, file, overhead) {
 }
 
 async function CreateActor(event, file) {
-    const source = game.settings.get("dragupload", "fileUploadSource");
+    const source = game.settings.get("drag-upload", "fileUploadSource");
     const path = file.isExternalUrl ? file.url : (await FilePicker.upload(source, `${window.dragUpload.targetFolder}/tokens`, file)).path;
     const coords = convertXYtoCanvas(event);
 
@@ -126,7 +126,7 @@ async function CreateActor(event, file) {
         name: file.name.replace(/\.[^/.]+$/, ""),
         type: game.system.id === "dnd5e" ? "npc" : Object.keys(CONFIG.Actor.dataModels)[0],
         img: path,
-        prototypeToken: { texture: { src: path } }
+        prototypeToken: { texture: { src: path } } // Correct V13 Data Structure
     });
 
     const tokenData = {
@@ -143,7 +143,7 @@ async function CreateActor(event, file) {
 }
 
 async function CreateJournalPin(event, file) {
-    const source = game.settings.get("dragupload", "fileUploadSource");
+    const source = game.settings.get("drag-upload", "fileUploadSource");
     const path = file.isExternalUrl ? file.url : (await FilePicker.upload(source, `${window.dragUpload.targetFolder}/journals`, file)).path;
     const journal = await JournalEntry.create({ name: file.name, img: path });
     const coords = convertXYtoCanvas(event);
@@ -165,7 +165,7 @@ function convertXYtoCanvas(event) {
 }
 
 async function createFoldersIfMissing() {
-    const targetLocation = game.settings.get("dragupload", "fileUploadFolder");
+    const targetLocation = game.settings.get("drag-upload", "fileUploadFolder");
     const folders = targetLocation.split("/").filter(x => x !== "");
     let path = "";
     for (const f of folders) {
@@ -178,7 +178,7 @@ async function createFoldersIfMissing() {
 }
 
 async function createFolderIfMissing(folderPath) {
-    const source = game.settings.get("dragupload", "fileUploadSource");
+    const source = game.settings.get("drag-upload", "fileUploadSource");
     try {
         await FilePicker.createDirectory(source, folderPath);
     } catch (e) {}
