@@ -1,38 +1,39 @@
-![](https://img.shields.io/badge/Foundry-v0.7.2-informational)
-[![](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-%243-orange)](https://www.buymeacoffee.com/T2tZvWJ)
+# Drag Upload (V13 Compatible)
 
-# Drag Upload (Get Over Here!)
+/**
+ * Drag Upload (V13 Compatible)
+ * Significant refactoring for efficiency and V13 Data Model compatibility. 
+ * Will NOT work with FoundryVTT versions prior to 12.
+ */
 
-## WARNING - Drag Upload will NOT work if you run Foundry in Admin mode on Windows due to a Windows security feature!
+## Description
+Adds the ability to drag files directly from your computer or a web browser onto the Foundry VTT canvas to automatically create Tokens, Tiles, Journal Pins, and Ambient Audio.
 
-Adds the ability to drag files onto the Foundry canvas to automatically create Tokens, Tiles, Journal Pins, and Ambient Audio
+This is a modernized version of the original module by **Cody Swendrowski**. 
+Original Version: [FoundryVTT-Drag-Upload](https://github.com/cswendrowski/FoundryVTT-Drag-Upload)
 
-![](./dragupload.gif)
+## Features
+* **Smart Layer Detection:** The module creates different documents based on your active layer:
+    * **Token Layer:** Creates a new Actor and places a Token.
+    * **Background/Foreground Layer:** Creates a Tile.
+    * **Notes Layer:** Creates a Journal Entry and a Note pin.
+* **Audio Support:** Automatically detects audio files (.mp3, .wav, .flac, etc.) and creates an Ambient Sound source.
+* **Web Import:** Drag images directly from your browser to upload and place them instantly (Chromium-based browsers recommended).
+* **V13 Optimized:** Uses the modern Document Data Model and `worldTransform` coordinate math for high performance and perfect placement.
 
-If the file is an audio file (.mp3, .mp4, .wav, .flac), it will be created as an Ambient Audio with easing.
+## V13 Refactor Highlights
+* **Zero Legacy Bloat:** Removed all compatibility code for versions 9, 10, and 11, resulting in a script half the size of the original.
+* **Data Model Compliance:** Fully updated to use `prototypeToken.texture` and modern Document creation methods.
+* **Stale Data Fix:** Implemented scoped variable resets to prevent "sticky" images when dragging multiple different web assets in a single session.
+* **Professional Logging:** Added structured console logging for easier troubleshooting of file uploads and coordinate mapping.
 
-Otherwise, it will be treated as an Image and created based on the current active layer:
+## Installation
+To install this version, use the following manifest URL in your Foundry VTT Add-on Modules tab:
+`https://github.com/snigrott/FoundryVTT-Drag-Upload/releases/download/latest/module.json`
 
-* Token: 1x1 Actor with Token
-* Tile: Tile of the same size as the image
-* Notes: Journal with a corresponding Journal Pin
-* Other: Same as Token
+## Usage Tips
+* **Snap to Grid:** Assets snap to the grid by default. Hold **Shift** while dropping to bypass snapping.
+* **Hidden Assets:** Hold **Alt** while dropping to create the Token or Tile as "Hidden" from players.
 
-
-## Changelog
-
-### v1.1.0
-* https://github.com/cswendrowski/FoundryVTT-Drag-Upload/issues/1 - Added full support for all audio types (except WEBM, because that's almost always an animated image)
-* https://github.com/cswendrowski/FoundryVTT-Drag-Upload/issues/2 - When WEBM is dragged, only set the Token and not the Actor
-
-### v1.2.0
-Thanks to [Itamarcu](https://github.com/itamarcu) for this wonderful addition!
-You can now drag upload images straight from a webbrowser. **This is not supported in Firefox**
-![](./draguploadfromweb.gif)
-
-### v1.3.0
-Thanks to [Itamarcu](https://github.com/itamarcu), you can now create Actorless tokens!
-
-### v1.4.1
-We now integrate with the upcoming Isometric module!
-![](./draguploadiso.gif)
+---
+*Maintained for V13 by Brian Smith (Jan 2026)*
