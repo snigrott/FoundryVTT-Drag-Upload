@@ -19,7 +19,15 @@ Adds the ability to drag files directly from your computer or a web browser onto
 * **Zero Legacy Bloat:** Removed all compatibility code for versions 9, 10, and 11, resulting in a script half the size of the original.
 * **Data Model Compliance:** Fully updated to use `prototypeToken.texture` and modern Document creation methods.
 * **Stale Data Fix:** Implemented scoped variable resets to prevent "sticky" images when dragging multiple different web assets in a single session.
-* **Professional Logging:** Added structured console logging for easier troubleshooting of file uploads and coordinate mapping.
+* **Logging:** Added structured console logging for easier troubleshooting of file uploads and coordinate mapping.
+
+* Instant Scaling (Alt + Scroll): Hover over any token, hold Alt, and scroll to dynamically resize it in 1-grid increments.
+
+* Smart UI Protection: Safely handles global drops. Dragging images onto character sheets or the sidebar will trigger default Foundry behavior, while dragging onto the map triggers the module.
+
+* Chat Notifications: Automatically posts a clickable link to the chat log for every new Actor or Handout created.
+
+* Contextual Creation: Automatically creates a Journal Handout if the Journal Notes tool is active, or an Actor Token for all other tools.
 
 ## Installation
 To install this version, use the following manifest URL in your Foundry VTT Add-on Modules tab:
