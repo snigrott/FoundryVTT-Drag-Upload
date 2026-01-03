@@ -1,21 +1,14 @@
 /**
  * Drag Upload (V13 Compatible)
- * Significant refactoring for efficiency and V13 Data Model compatibility. 
- * Will NOT work with FoundryVTT versions prior to 12.
- * Optimized for Speed of Play: Multi-drop, Auto-folders, and Path Verification.
-   Added, Sidebar Sorting, Auto-Handouts, and Staggered Placement.
- */
-
-/**
- * Drag Upload - Robust V13 "Fred Edition"
-
+ * Version 3.0.4
+ * Significant refactoring for efficiency and V13 Data Model compatibility. Will NOT work with FoundryVTT versions prior to 12.
+ * Optimized for Speed of Play: Multi-drop, Auto-folders, and Path Verification. Sidebar Sorting, Auto-Handouts, and Staggered Placement.
  */
 
 class DragUploadEngine {
     static ID = "drag-upload";
 
     static init() {
-        // Setting for Actor Sidebar Folder
         game.settings.register(this.ID, "actorFolderName", {
             name: "Actor Sidebar Folder",
             hint: "Folder name for new Tokens in the Actor tab.",
@@ -25,7 +18,6 @@ class DragUploadEngine {
             default: "Drag Uploads"
         });
 
-        // Setting for Journal Sidebar Folder
         game.settings.register(this.ID, "journalFolderName", {
             name: "Journal Sidebar Folder",
             hint: "Folder name for new Handouts in the Journal tab.",
@@ -53,25 +45,25 @@ class DragUploadEngine {
         event.preventDefault();
         event.stopPropagation();
 
-        const activeLayer = canvas.activeLayer.name;
+        const activeTool = ui.controls.activeControl; 
         const source = game.settings.get(this.ID, "fileUploadSource");
         const rootPath = "assets/drag-upload";
 
-        // Step 1: Ensure Server Directories exist
         await this.ensureServerDirectory(source, rootPath);
 
-        // Step 2: Loop through batch files
         for (let i = 0; i < files.length; i++) {
             const offset = i * 50;
             const file = files[i];
-            ui.notifications.info(`Processing ${file.name}...`);
+            
+            // CLEAN FILENAME: Strip extension for cleaner UI
+            const cleanName = file.name.replace(/\.[^/.]+$/, "");
 
-            if (activeLayer.includes("TokenLayer")) {
-                await this.createActor(event, file, offset);
-            } else if (activeLayer.includes("NotesLayer")) {
-                await this.createHandout(event, file, offset);
+            if (activeTool === "notes") {
+                await this.createHandout(event, file, cleanName, offset);
+            } else if (activeTool === "token") {
+                await this.createActor(event, file, cleanName, offset);
             } else {
-                await this.createTile(event, file, activeLayer.includes("ForegroundLayer"), offset);
+                await this.createTile(event, file, activeTool === "foreground", offset);
             }
         }
     }
@@ -84,13 +76,12 @@ class DragUploadEngine {
             try { await FilePicker.browse(source, currentPath); } 
             catch (err) { await FilePicker.createDirectory(source, currentPath); }
         }
-        // Sub-directories
         for (const sub of ["tokens", "journals", "tiles"]) {
             try { await FilePicker.createDirectory(source, `${path}/${sub}`); } catch(e) {}
         }
     }
 
-    static async createActor(event, file, offset) {
+    static async createActor(event, file, cleanName, offset) {
         const source = game.settings.get(this.ID, "fileUploadSource");
         const sidebarName = game.settings.get(this.ID, "actorFolderName");
         const upload = await FilePicker.upload(source, "assets/drag-upload/tokens", file);
@@ -99,17 +90,32 @@ class DragUploadEngine {
         if (!folder) folder = await Folder.create({ name: sidebarName, type: "Actor", color: "#ff6600" });
 
         const actor = await Actor.create({
-            name: file.name.replace(/\.[^/.]+$/, ""),
+            name: cleanName,
             type: game.system.id === "dnd5e" ? "npc" : Object.keys(CONFIG.Actor.dataModels)[0],
             img: upload.path,
             folder: folder.id,
-            prototypeToken: { texture: { src: upload.path } }
+            prototypeToken: { 
+                name: cleanName,
+                texture: { src: upload.path },
+                displayName: CONST.TOKEN_DISPLAY_MODES.HOVER // Shows name to GM/Players on hover
+            }
         });
 
-        return this.placeToken(event, actor, upload.path, offset);
+        const coords = this.getCoords(event, offset);
+        const tokenData = {
+            name: cleanName,
+            actorId: actor.id,
+            actorLink: true,
+            texture: { src: upload.path },
+            x: coords.x,
+            y: coords.y,
+            displayName: CONST.TOKEN_DISPLAY_MODES.HOVER
+        };
+        if (!event.shiftKey) Object.assign(tokenData, canvas.grid.getSnappedPosition(tokenData.x, tokenData.y));
+        return canvas.scene.createEmbeddedDocuments('Token', [tokenData]);
     }
 
-    static async createHandout(event, file, offset) {
+    static async createHandout(event, file, cleanName, offset) {
         const source = game.settings.get(this.ID, "fileUploadSource");
         const sidebarName = game.settings.get(this.ID, "journalFolderName");
         const upload = await FilePicker.upload(source, "assets/drag-upload/journals", file);
@@ -118,10 +124,10 @@ class DragUploadEngine {
         if (!folder) folder = await Folder.create({ name: sidebarName, type: "JournalEntry", color: "#00ffcc" });
 
         const journal = await JournalEntry.create({
-            name: file.name.replace(/\.[^/.]+$/, ""),
+            name: cleanName,
             folder: folder.id,
-            ownership: { default: CONST.DOCUMENT_OWNERSHIP_LEVELS.OBSERVER }, // Fred Style: Everyone sees it
-            pages: [{ name: file.name, type: "image", src: upload.path }]
+            ownership: { default: CONST.DOCUMENT_OWNERSHIP_LEVELS.OBSERVER }, 
+            pages: [{ name: cleanName, type: "image", src: upload.path }]
         });
 
         const coords = this.getCoords(event, offset);
@@ -129,10 +135,11 @@ class DragUploadEngine {
             entryId: journal.id,
             x: coords.x,
             y: coords.y,
+            text: cleanName, // Sets the label on the map pin
             texture: { src: "icons/svg/book.svg" }
         }]);
 
-        journal.show("image", true); // Instantly pop-up for players
+        journal.show("image", true);
     }
 
     static async createTile(event, file, overhead, offset) {
@@ -151,20 +158,6 @@ class DragUploadEngine {
         };
         if (!event.shiftKey) Object.assign(data, canvas.grid.getSnappedPosition(data.x, data.y));
         return canvas.scene.createEmbeddedDocuments('Tile', [data]);
-    }
-
-    static async placeToken(event, actor, path, offset) {
-        const coords = this.getCoords(event, offset);
-        const tokenData = {
-            name: actor.name,
-            actorId: actor.id,
-            actorLink: true,
-            texture: { src: path },
-            x: coords.x,
-            y: coords.y
-        };
-        if (!event.shiftKey) Object.assign(tokenData, canvas.grid.getSnappedPosition(tokenData.x, tokenData.y));
-        return canvas.scene.createEmbeddedDocuments('Token', [tokenData]);
     }
 
     static getCoords(event, offset) {
