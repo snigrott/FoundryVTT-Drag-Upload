@@ -2,12 +2,13 @@
  * Drag Upload (V13 Compatible)
  * Significant refactoring for efficiency and V13 Data Model compatibility. 
  * Will NOT work with FoundryVTT versions prior to 12.
+ * Optimized for Speed of Play: Multi-drop, Auto-folders, and Path Verification.
  */
 
 Hooks.once('init', async () => {
     const usingTheForge = typeof ForgeVTT != "undefined" && ForgeVTT.usingTheForge;
 
-    // Registers settings under the hyphenated "drag-upload" ID
+    // 1. Where the files go on the SERVER
     game.settings.register("drag-upload", "fileUploadSource", {
         name: "Upload Source",
         scope: "world",
@@ -19,13 +20,23 @@ Hooks.once('init', async () => {
     });
 
     game.settings.register("drag-upload", "fileUploadFolder", {
-        name: "Upload Folder Path",
-        hint: "Example: drag-upload/uploaded",
+        name: "Server Upload Path",
+        hint: "Where images are stored on your server. Default: assets/drag-upload",
         scope: "world",
         config: true,
         type: String,
-        default: "drag-upload/uploaded",
+        default: "assets/drag-upload",
         onChange: async () => { await initializeDragUpload(); }
+    });
+
+    // 2. Where the Actors go in the SIDEBAR
+    game.settings.register("drag-upload", "actorFolderName", {
+        name: "Actor Sidebar Folder",
+        hint: "The name of the folder in your Actor sidebar.",
+        scope: "world",
+        config: true,
+        type: String,
+        default: "Drag Uploads"
     });
 });
 
@@ -34,9 +45,8 @@ Hooks.once('ready', async function() {
 
     const board = document.getElementById("board");
     if (board) {
-        new DragDrop({
-            callbacks: { drop: handleDrop }
-        }).bind(board);
+        // We use a standard event listener for better multi-file control
+        board.addEventListener("drop", handleDrop);
     }
 });
 
@@ -51,54 +61,81 @@ async function initializeDragUpload() {
 }
 
 async function handleDrop(event) {
-    event.preventDefault();
-
-    let file = null; // Fresh start for every drop event
-    const dataTransfer = event.dataTransfer;
-    const files = dataTransfer.files;
-
+    const files = event.dataTransfer.files;
+    
+    // Check for Local Files (Batch)
     if (files && files.length > 0) {
-        file = files[0];
-        console.log(`DragUpload | Processing local file: ${file.name}`);
-    } 
-    else {
-        const rawUrl = dataTransfer.getData("text/plain") || dataTransfer.getData("text/uri-list");
-        if (rawUrl) {
-            const cleanUrl = rawUrl.split("?")[0];
-            const filename = cleanUrl.split("/").pop() || "web-import.png";
-            const extension = filename.split(".").pop().toLowerCase();
+        event.preventDefault();
+        event.stopPropagation();
 
-            const validExtensions = Object.keys(CONST.IMAGE_FILE_EXTENSIONS)
-                .concat(Object.keys(CONST.VIDEO_FILE_EXTENSIONS))
-                .concat(Object.keys(CONST.AUDIO_FILE_EXTENSIONS));
-
-            if (validExtensions.includes(extension)) {
-                file = { isExternalUrl: true, url: cleanUrl, name: filename };
-                console.log(`DragUpload | Processing external URL: ${cleanUrl}`);
+        const activeLayer = canvas.activeLayer.name;
+        for (let i = 0; i < files.length; i++) {
+            const offset = i * 50; // Offset prevents tokens from stacking
+            ui.notifications.info(`Processing ${files[i].name}...`);
+            
+            if (activeLayer.includes("TokenLayer")) {
+                await CreateActor(event, files[i], offset);
+            } else if (activeLayer.includes("NotesLayer")) {
+                await CreateJournalPin(event, files[i]);
+            } else {
+                await CreateTile(event, files[i], activeLayer.includes("ForegroundLayer"), offset);
             }
         }
-    }
+        return;
+    } 
 
-    if (!file) {
-        console.log("DragUpload | No valid asset identified; delegating to core.");
-        return canvas._onDrop(event);
-    }
-
-    const activeLayer = canvas.activeLayer.name;
-    try {
-        if (activeLayer.includes("TokenLayer")) {
-            await CreateActor(event, file);
-        } else if (activeLayer.includes("NotesLayer")) {
-            await CreateJournalPin(event, file);
-        } else {
-            await CreateTile(event, file, activeLayer.includes("ForegroundLayer"));
+    // Check for External URL (Single)
+    const rawUrl = event.dataTransfer.getData("text/plain") || event.dataTransfer.getData("text/uri-list");
+    if (rawUrl) {
+        const cleanUrl = rawUrl.split("?")[0];
+        const filename = cleanUrl.split("/").pop() || "web-import.png";
+        const file = { isExternalUrl: true, url: cleanUrl, name: filename };
+        
+        if (canvas.activeLayer.name.includes("TokenLayer")) {
+            event.preventDefault();
+            await CreateActor(event, file, 0);
         }
-    } catch (err) {
-        console.error("DragUpload | Error creating document:", err);
     }
 }
 
-async function CreateTile(event, file, overhead) {
+async function CreateActor(event, file, offset = 0) {
+    const source = game.settings.get("drag-upload", "fileUploadSource");
+    const sidebarName = game.settings.get("drag-upload", "actorFolderName");
+    
+    // Upload logic
+    const path = file.isExternalUrl ? file.url : (await FilePicker.upload(source, `${window.dragUpload.targetFolder}/tokens`, file)).path;
+    const coords = convertXYtoCanvas(event);
+
+    // 1. Sidebar Folder logic
+    let folder = game.folders.find(f => f.name === sidebarName && f.type === "Actor");
+    if (!folder) {
+        folder = await Folder.create({ name: sidebarName, type: "Actor", color: "#ff6600" });
+    }
+
+    // 2. Create Actor (V13)
+    const actor = await Actor.create({
+        name: file.name.replace(/\.[^/.]+$/, ""),
+        type: game.system.id === "dnd5e" ? "npc" : Object.keys(CONFIG.Actor.dataModels)[0],
+        img: path,
+        folder: folder.id,
+        prototypeToken: { texture: { src: path } }
+    });
+
+    // 3. Create Token
+    const tokenData = {
+        name: actor.name,
+        actorId: actor.id,
+        actorLink: true,
+        texture: { src: path },
+        x: coords.x + offset,
+        y: coords.y + offset
+    };
+
+    if (!event.shiftKey) Object.assign(tokenData, canvas.grid.getSnappedPosition(tokenData.x, tokenData.y));
+    return canvas.scene.createEmbeddedDocuments('Token', [tokenData]);
+}
+
+async function CreateTile(event, file, overhead, offset = 0) {
     const source = game.settings.get("drag-upload", "fileUploadSource");
     const path = file.isExternalUrl ? file.url : (await FilePicker.upload(source, `${window.dragUpload.targetFolder}/tiles`, file)).path;
     const coords = convertXYtoCanvas(event);
@@ -109,37 +146,12 @@ async function CreateTile(event, file, overhead) {
         width: tex.baseTexture.width,
         height: tex.baseTexture.height,
         overhead: overhead,
-        x: coords.x - (tex.baseTexture.width / 2),
-        y: coords.y - (tex.baseTexture.height / 2)
+        x: (coords.x + offset) - (tex.baseTexture.width / 2),
+        y: (coords.y + offset) - (tex.baseTexture.height / 2)
     };
 
     if (!event.shiftKey) Object.assign(data, canvas.grid.getSnappedPosition(data.x, data.y));
     return canvas.scene.createEmbeddedDocuments('Tile', [data]);
-}
-
-async function CreateActor(event, file) {
-    const source = game.settings.get("drag-upload", "fileUploadSource");
-    const path = file.isExternalUrl ? file.url : (await FilePicker.upload(source, `${window.dragUpload.targetFolder}/tokens`, file)).path;
-    const coords = convertXYtoCanvas(event);
-
-    const actor = await Actor.create({
-        name: file.name.replace(/\.[^/.]+$/, ""),
-        type: game.system.id === "dnd5e" ? "npc" : Object.keys(CONFIG.Actor.dataModels)[0],
-        img: path,
-        prototypeToken: { texture: { src: path } } // Correct V13 Data Structure
-    });
-
-    const tokenData = {
-        name: actor.name,
-        actorId: actor.id,
-        actorLink: true,
-        texture: { src: path },
-        x: coords.x,
-        y: coords.y
-    };
-
-    if (!event.shiftKey) Object.assign(tokenData, canvas.grid.getSnappedPosition(tokenData.x, tokenData.y));
-    return canvas.scene.createEmbeddedDocuments('Token', [tokenData]);
 }
 
 async function CreateJournalPin(event, file) {
@@ -152,7 +164,7 @@ async function CreateJournalPin(event, file) {
         entryId: journal.id,
         x: coords.x,
         y: coords.y,
-        icon: "icons/svg/book.svg"
+        texture: { src: "icons/svg/book.svg" }
     }]);
 }
 
@@ -165,21 +177,15 @@ function convertXYtoCanvas(event) {
 }
 
 async function createFoldersIfMissing() {
+    const source = game.settings.get("drag-upload", "fileUploadSource");
     const targetLocation = game.settings.get("drag-upload", "fileUploadFolder");
     const folders = targetLocation.split("/").filter(x => x !== "");
     let path = "";
     for (const f of folders) {
         path += (path ? "/" : "") + f;
-        await createFolderIfMissing(path);
+        try { await FilePicker.createDirectory(source, path); } catch (e) {}
     }
-    await createFolderIfMissing(`${path}/tokens`);
-    await createFolderIfMissing(`${path}/tiles`);
-    await createFolderIfMissing(`${path}/journals`);
-}
-
-async function createFolderIfMissing(folderPath) {
-    const source = game.settings.get("drag-upload", "fileUploadSource");
-    try {
-        await FilePicker.createDirectory(source, folderPath);
-    } catch (e) {}
+    try { await FilePicker.createDirectory(source, `${path}/tokens`); } catch (e) {}
+    try { await FilePicker.createDirectory(source, `${path}/tiles`); } catch (e) {}
+    try { await FilePicker.createDirectory(source, `${path}/journals`); } catch (e) {}
 }
