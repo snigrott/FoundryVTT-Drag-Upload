@@ -1,13 +1,13 @@
 {
   "id": "drag-upload",
   "title": "Drag Upload",
-  "description": "Adds the ability to drag files onto Foundry to automatically create Scenes, Tokens, Tiles, Journal Pins, and Ambient Audio.",
-  "version": "3.0.1",
+  "description": "Adds the ability to drag files onto Foundry to automatically create Tokens."
+  "version": "3.0.2",
   "compatibility": {
     "minimum": "12",
     "verified": "13"
   },
-  "author": "Cody Swendrowski (Modernized by Brian Smith Jan 2026)",
+  "author": "Cody Swendrowski (Updated for Version 13 by Brian Smith Jan 2026)",
   "esmodules": ["dragupload.js"],
   "url": "https://github.com/snigrott/FoundryVTT-Drag-Upload",
   "manifest": "https://github.com/snigrott/FoundryVTT-Drag-Upload/releases/download/latest/module.json",
