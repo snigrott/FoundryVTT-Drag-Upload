@@ -1,16 +1,10 @@
 # Drag Upload (V13 Compatible)
 
-/**
- * Drag Upload (V13 Compatible)
- * Significant refactoring for efficiency and V13 Data Model compatibility. 
- * Will NOT work with FoundryVTT versions prior to 12.
- */
-
+* This is a significant refactoring of the original module by **Cody Swendrowski** for Foundry Virtual Table Top Version 13.
+* Due to significant internal Data Model compatibility changes between FoundryVTT Version 11 and later releases this module will NOT work with FoundryVTT versions prior to 12. Please use the Original Version: [FoundryVTT-Drag-Upload](https://github.com/cswendrowski/FoundryVTT-Drag-Upload)
+  
 ## Description
 Adds the ability to drag files directly from your computer or a web browser onto the Foundry VTT canvas to automatically create Tokens, Tiles, Journal Pins, and Ambient Audio.
-
-This is a modernized version of the original module by **Cody Swendrowski**. 
-Original Version: [FoundryVTT-Drag-Upload](https://github.com/cswendrowski/FoundryVTT-Drag-Upload)
 
 ## Features
 * **Smart Layer Detection:** The module creates different documents based on your active layer:
