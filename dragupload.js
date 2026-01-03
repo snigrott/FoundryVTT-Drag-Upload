@@ -1,6 +1,7 @@
 /**
- * Drag Upload (V13 Modernized)
- * Professional refactor for efficiency and V13 Data Model compatibility.
+ * Drag Upload (V13 Compatible)
+ * Significant refactoring for efficiency and V13 Data Model compatibility. 
+ * Will NOT work with FoundryVTT versions prior to 12.
  */
 
 Hooks.once('init', async () => {
