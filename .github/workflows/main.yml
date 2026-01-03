@@ -6,16 +6,17 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3 # Updated for better security/speed
+    - uses: actions/checkout@v3
 
-    # Removed 'styles/' because we deleted that folder to keep the module lean
+    # Zip the files
     - run: zip -r ./module.zip module.json dragupload.js README.md
 
-    # Get the version from 'module.json'
+    # Get the version (Fixed to remove the deprecated set-output warning)
     - name: Get Version
-      shell: bash
       id: get-version
-      run: echo "::set-output name=version::$(node ./.github/workflows/get-version.js)"
+      run: |
+        VERSION=$(node ./.github/workflows/get-version.js)
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
 
     # Create a release for this specific version (e.g., 3.0.1)
     - name: Create Version Release
@@ -30,11 +31,11 @@ jobs:
         artifacts: './module.json,./module.zip'
         tag: ${{ steps.get-version.outputs.version }}
 
-    # Update the 'latest' release so the manifest link always works
+    # Update the 'latest' release
     - name: Create Latest Release
       id: create_latest_release
       uses: ncipollo/release-action@v1
-      if: endsWith(github.ref, 'master') || endsWith(github.ref, 'main')
+      if: endsWith(github.ref, 'main') || endsWith(github.ref, 'master')
       with:
         allowUpdates: true
         name: Latest
