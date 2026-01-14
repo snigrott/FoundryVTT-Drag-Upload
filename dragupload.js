@@ -1,7 +1,6 @@
 /**
- * Drag Upload (V13 Professional - Actor Only)
- * Version 3.5.0
- * Includes: V13 Interface mapping, Disposition defaults, and Bulk Chat Summary.
+ * Drag Upload (V13 Choice Dialog - Custom Folders)
+ * Version 3.7.1
  */
 
 class DragUploadEngine {
@@ -16,14 +15,13 @@ class DragUploadEngine {
     }
 
     static registerSettings() {
-        game.settings.register(this.ID, "actorFolderName", { name: "Actor Sidebar Folder", scope: "world", config: true, type: String, default: "Drag Uploads" });
+        game.settings.register(this.ID, "actorFolderName", { name: "Actor Folder", scope: "world", config: true, type: String, default: "Drag Uploads" });
+        // FIXED: Changed default to "Handouts"
+        game.settings.register(this.ID, "journalFolderName", { name: "Journal Folder", scope: "world", config: true, type: String, default: "Handouts" });
         
         const sourceChoices = { "data": "User Data", "s3": "S3 Storage" };
         if (typeof ForgeVTT !== "undefined" && ForgeVTT.usingTheForge) sourceChoices["forgevtt"] = "The Forge";
-
-        game.settings.register(this.ID, "fileUploadSource", { 
-            name: "Upload Source", scope: "world", config: true, type: String, default: "data", choices: sourceChoices 
-        });
+        game.settings.register(this.ID, "fileUploadSource", { name: "Upload Source", scope: "world", config: true, type: String, default: "data", choices: sourceChoices });
     }
 
     static _onWheel(event) {
@@ -31,95 +29,131 @@ class DragUploadEngine {
         const hover = canvas.tokens.hover;
         if (!hover) return;
         event.preventDefault();
-        event.stopPropagation();
         const delta = event.deltaY < 0 ? 1 : -1; 
-        let newSize = Math.max(1, hover.document.width + delta);
-        hover.document.update({ width: newSize, height: newSize });
+        hover.document.update({ width: Math.max(1, hover.document.width + delta), height: Math.max(1, hover.document.height + delta) });
     }
 
     static async handleDrop(event) {
         const files = event.dataTransfer.files;
         if (!files?.length || !canvas.ready || !game.user.isGM) return;
-
-        const isUI = event.target.closest(".window-app, #sidebar, #controls, #navigation, #players");
-        if (isUI) return;
+        if (event.target.closest(".window-app, #sidebar")) return;
 
         event.preventDefault();
         event.stopPropagation();
 
-        const source = game.settings.get(this.ID, "fileUploadSource");
-        await this.ensureServerDirectory(source, "assets/drag-upload/tokens");
-        const folderId = await this.ensureSidebarFolder();
-
-        // V13 COORDINATE CAPTURE (Raw Math for stability)
         const t = canvas.stage.worldTransform;
-        const baseCoords = {
+        const coords = {
             x: (event.clientX - t.tx) / canvas.stage.scale.x,
             y: (event.clientY - t.ty) / canvas.stage.scale.y
         };
 
-        ui.notifications.info(`Processing ${files.length} uploads...`);
+        new Dialog({
+            title: `Import ${files.length} File(s)`,
+            content: `<p style="text-align:center">Select import type for these assets:</p>`,
+            buttons: {
+                actor: {
+                    icon: '<i class="fas fa-user"></i>',
+                    label: "Actor",
+                    callback: () => this.processFiles(files, coords, "actor", event.shiftKey)
+                },
+                journal: {
+                    icon: '<i class="fas fa-book-open"></i>',
+                    label: "Handout",
+                    callback: () => this.processFiles(files, coords, "journal", event.shiftKey)
+                },
+                tile: {
+                    icon: '<i class="fas fa-cubes"></i>',
+                    label: "Tile",
+                    callback: () => this.processFiles(files, coords, "tile", event.shiftKey)
+                }
+            },
+            default: "actor"
+        }).render(true);
+    }
+
+    static async processFiles(files, coords, type, isShift) {
+        const source = game.settings.get(this.ID, "fileUploadSource");
+        const folderName = game.settings.get(this.ID, type === "actor" ? "actorFolderName" : "journalFolderName");
+        const folderType = type === "actor" ? "Actor" : "JournalEntry";
         
-        let createdActors = [];
+        const serverPath = `assets/drag-upload/${type}s`;
+        await this.ensureServerDirectory(source, serverPath);
+
+        let folderId = null;
+        if (type !== "tile") {
+            let folder = game.folders.find(f => f.name === folderName && f.type === folderType);
+            if (!folder) folder = await Folder.create({ name: folderName, type: folderType });
+            folderId = folder.id;
+        }
 
         for (let i = 0; i < files.length; i++) {
-            const offset = i * 20;
             const file = files[i];
             const cleanName = file.name.replace(/\.[^/.]+$/, "");
+            const offset = i * 20;
+            const finalCoords = { x: coords.x + offset, y: coords.y + offset };
 
-            try {
-                const actor = await this.createActor(source, baseCoords, file, cleanName, offset, folderId, event.shiftKey);
-                if (actor) createdActors.push(actor);
-            } catch (err) {
-                console.error("Drag Upload | Error:", err);
-            }
-        }
-
-        // V13 BULK CHAT SUMMARY (One message for all drops)
-        if (createdActors.length > 0) {
-            const links = createdActors.map(a => a.toAnchor().outerHTML).join(", ");
-            ChatMessage.create({
-                content: `<b>Drag Upload Complete:</b><br>${links}`,
-                whisper: [game.user.id]
-            });
+            if (type === "actor") await this.createActor(source, serverPath, file, cleanName, finalCoords, folderId, isShift);
+            else if (type === "journal") await this.createHandout(source, serverPath, file, cleanName, finalCoords, folderId);
+            else await this.createTile(source, serverPath, file, finalCoords);
         }
     }
 
-    static async ensureSidebarFolder() {
-        const name = game.settings.get(this.ID, "actorFolderName");
-        let folder = game.folders.find(f => f.name === name && f.type === "Actor");
-        if (!folder) folder = await Folder.create({ name, type: "Actor", color: "#ff6600" });
-        return folder.id;
-    }
-
-    static async createActor(source, baseCoords, file, cleanName, offset, folderId, isShift) {
-        const upload = await FilePicker.upload(source, "assets/drag-upload/tokens", file);
+    static async createActor(source, path, file, name, coords, folderId, isShift) {
+        const upload = await FilePicker.upload(source, path, file);
+        const compendiumSource = await this.findMonsterStats(name);
         
-        const actor = await Actor.create({
-            name: cleanName,
+        let actorData = {
+            name: name,
             type: game.system.id === "dnd5e" ? "npc" : Object.keys(CONFIG.Actor.documentClass.metadata.types)[0],
             img: upload.path,
             folder: folderId,
-            prototypeToken: { 
-                name: cleanName, texture: { src: upload.path },
-                displayName: 20, 
-                disposition: 0, // V13: Explicit Neutral Disposition
-                bar1: { attribute: game.system.id === "dnd5e" ? "attributes.hp" : "" }
-            }
-        });
-
-        const tokenData = {
-            name: cleanName, actorId: actor.id, actorLink: true,
-            texture: { src: upload.path }, 
-            x: baseCoords.x + offset, 
-            y: baseCoords.y + offset,
-            disposition: 0
+            prototypeToken: { name: name, texture: { src: upload.path }, displayName: 20 }
         };
-        
+
+        if (compendiumSource) {
+            actorData = foundry.utils.mergeObject(compendiumSource.toObject(), actorData);
+            delete actorData._id;
+        }
+
+        const actor = await Actor.create(actorData);
+        let tokenData = { name: name, actorId: actor.id, actorLink: true, texture: { src: upload.path }, x: coords.x, y: coords.y };
         if (!isShift) Object.assign(tokenData, canvas.grid.getSnappedPosition(tokenData.x, tokenData.y));
-        
         await canvas.scene.createEmbeddedDocuments('Token', [tokenData]);
-        return actor;
+    }
+
+    static async createHandout(source, path, file, name, coords, folderId) {
+        const upload = await FilePicker.upload(source, path, file);
+        const journal = await JournalEntry.create({
+            name: name, folder: folderId,
+            pages: [{ name: name, type: "image", src: upload.path }],
+            ownership: { default: 2 }
+        });
+        await canvas.scene.createEmbeddedDocuments('Note', [{
+            entryId: journal.id, x: coords.x, y: coords.y, texture: { src: "icons/svg/book.svg" }
+        }]);
+        journal.show("image", true);
+    }
+
+    static async createTile(source, path, file, coords) {
+        const upload = await FilePicker.upload(source, path, file);
+        const tex = await loadTexture(upload.path);
+        await canvas.scene.createEmbeddedDocuments('Tile', [{
+            texture: { src: upload.path },
+            width: tex.width,
+            height: tex.height,
+            x: coords.x,
+            y: coords.y
+        }]);
+    }
+
+    static async findMonsterStats(name) {
+        const packs = game.packs.filter(p => p.metadata.type === "Actor");
+        for (let pack of packs) {
+            const index = await pack.getIndex({fields: ["name"]});
+            const match = index.find(e => e.name.toLowerCase() === name.toLowerCase());
+            if (match) return await pack.getDocument(match._id);
+        }
+        return null;
     }
 
     static async ensureServerDirectory(source, path) {
@@ -133,6 +167,4 @@ class DragUploadEngine {
 }
 
 Hooks.once("init", () => DragUploadEngine.init());
-Hooks.on("ready", () => {
-    window.addEventListener("drop", (ev) => DragUploadEngine.handleDrop(ev));
-});
+Hooks.on("ready", () => { window.addEventListener("drop", (ev) => DragUploadEngine.handleDrop(ev)); });
