@@ -26,6 +26,7 @@ class DragUploadEngine {
         if (!hover) return;
         event.preventDefault();
         event.stopPropagation();
+        ui.notifications.info("Files detected. Tip: Hold ALT + Mousewheel over a token to resize it!");
         const delta = event.deltaY < 0 ? 1 : -1; 
         let newSize = Math.max(1, hover.document.width + delta);
         hover.document.update({ width: newSize, height: newSize });
