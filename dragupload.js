@@ -1,17 +1,12 @@
 /**
  * Drag Upload (V13 Optimized & S3 Ready)
- * Version 3.3.4
+ * Version 3.3.7
  * * FEATURES:
  * - S3, Forge, and Local Data storage compatibility.
  * - Sequential folder creation to prevent DB race conditions.
  * - Promise.all for concurrent (high-speed) multi-file uploads.
  * - One-time Alt+Scroll UI notification for GMs.
  * - Precise coordinate mapping using PIXI internals.
- */
-
-/**
- * Drag Upload (V13 Optimized - Local Storage)
- * Filename: dragupload.js
  */
 
 class DragUploadEngine {
@@ -21,6 +16,11 @@ class DragUploadEngine {
     static init() {
         this.registerSettings();
         window.addEventListener("wheel", (ev) => this._onWheel(ev), { passive: false });
+        
+        // Critical for allowing the drop to register
+        window.addEventListener("dragover", (ev) => {
+            if (ev.dataTransfer.types.includes("Files")) ev.preventDefault();
+        });
     }
 
     static registerSettings() {
@@ -42,10 +42,8 @@ class DragUploadEngine {
         if (!event.altKey) return;
         const hover = canvas.tokens.hover;
         if (!hover) return;
-        
         event.preventDefault();
         event.stopPropagation();
-        
         const delta = event.deltaY < 0 ? 0.5 : -0.5; 
         let newSize = Math.max(0.5, hover.document.width + delta);
         hover.document.update({ width: newSize, height: newSize });
@@ -71,35 +69,36 @@ class DragUploadEngine {
 
         ui.notifications.info(`Uploading ${files.length} items...`);
 
-        const uploads = Array.from(files).map((file, i) => {
+        // We use a standard for-loop here instead of Promise.all to prevent database collisions in V13
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
             const offset = i * 20;
             const cleanName = file.name.replace(/\.[^/.]+$/, "");
-            return activeTool === "notes" 
-                ? this.createHandout(event, file, cleanName, offset)
-                : this.createActor(event, file, cleanName, offset);
-        });
-
-        await Promise.all(uploads);
+            
+            if (activeTool === "notes") {
+                await this.createHandout(event, file, cleanName, offset);
+            } else {
+                await this.createActor(event, file, cleanName, offset);
+            }
+        }
     }
 
     static async ensureSidebarFolders(tool) {
         const isNote = tool === "notes";
         const folderName = game.settings.get(this.ID, isNote ? "journalFolderName" : "actorFolderName");
         const type = isNote ? "JournalEntry" : "Actor";
-        
         let folder = game.folders.find(f => f.name === folderName && f.type === type);
-        if (!folder) {
-            await Folder.create({ name: folderName, type: type, color: isNote ? "#00ffcc" : "#ff6600" });
-        }
+        if (!folder) await Folder.create({ name: folderName, type: type, color: isNote ? "#00ffcc" : "#ff6600" });
     }
 
     static async createActor(event, file, cleanName, offset) {
         const source = game.settings.get(this.ID, "fileUploadSource");
-        const sidebarName = game.settings.get(this.ID, "actorFolderName");
+        const folderName = game.settings.get(this.ID, "actorFolderName");
         
         const upload = await FilePicker.upload(source, "assets/drag-upload/tokens", file);
-        const folder = game.folders.find(f => f.name === sidebarName && f.type === "Actor");
+        const folder = game.folders.find(f => f.name === folderName && f.type === "Actor");
 
+        // 1. Create the Actor
         const actor = await Actor.create({
             name: cleanName,
             type: game.system.id === "dnd5e" ? "npc" : Object.keys(CONFIG.Actor.documentClass.metadata.types)[0],
@@ -108,28 +107,41 @@ class DragUploadEngine {
             prototypeToken: { 
                 name: cleanName, 
                 texture: { src: upload.path },
-                displayName: CONST.TOKEN_DISPLAY_MODES.HOVER,
-                bar1: { attribute: game.system.id === "dnd5e" ? "attributes.hp" : "" }
+                displayName: CONST.TOKEN_DISPLAY_MODES.HOVER
             }
         });
 
+        // 2. Get the coordinates
         const coords = this.getCoords(event, offset);
+        
+        // 3. Prepare Token Data
         const tokenData = {
-            name: cleanName, actorId: actor.id, actorLink: true,
-            texture: { src: upload.path }, x: coords.x, y: coords.y,
+            name: cleanName, 
+            actorId: actor.id, 
+            actorLink: true,
+            texture: { src: upload.path }, 
+            x: coords.x, 
+            y: coords.y,
             displayName: CONST.TOKEN_DISPLAY_MODES.HOVER
         };
         
-        if (!event.shiftKey) Object.assign(tokenData, canvas.grid.getSnappedPosition(tokenData.x, tokenData.y));
-        await canvas.scene.createEmbeddedDocuments('Token', [tokenData]);
+        // Snap if shift isn't held
+        if (!event.shiftKey) {
+            const snapped = canvas.grid.getSnappedPosition(tokenData.x, tokenData.y);
+            tokenData.x = snapped.x;
+            tokenData.y = snapped.y;
+        }
+
+        // 4. FIX: Use the specific scene and wait for creation
+        return await canvas.scene.createEmbeddedDocuments('Token', [tokenData]);
     }
 
     static async createHandout(event, file, cleanName, offset) {
         const source = game.settings.get(this.ID, "fileUploadSource");
-        const sidebarName = game.settings.get(this.ID, "journalFolderName");
+        const folderName = game.settings.get(this.ID, "journalFolderName");
         
         const upload = await FilePicker.upload(source, "assets/drag-upload/journals", file);
-        const folder = game.folders.find(f => f.name === sidebarName && f.type === "JournalEntry");
+        const folder = game.folders.find(f => f.name === folderName && f.type === "JournalEntry");
 
         const journal = await JournalEntry.create({
             name: cleanName, 
@@ -139,45 +151,43 @@ class DragUploadEngine {
         });
 
         const coords = this.getCoords(event, offset);
-        await canvas.scene.createEmbeddedDocuments('Note', [{
+        return await canvas.scene.createEmbeddedDocuments('Note', [{
             entryId: journal.id, x: coords.x, y: coords.y,
             texture: { src: "icons/svg/book.svg" }
         }]);
-
-        journal.show("image", true);
     }
 
     static getCoords(event, offset) {
-        const point = new PIXI.Point(event.clientX, event.clientY);
-        const local = canvas.app.stage.mapPointToParent(point);
-        return { x: local.x + offset, y: local.y + offset };
+        const rect = canvas.app.view.getBoundingClientRect();
+        const coords = canvas.canvasCoordinatesFromScreen({
+            x: event.clientX - rect.left, 
+            y: event.clientY - rect.top
+        });
+        return { x: coords.x + offset, y: coords.y + offset };
     }
 
     static async ensureServerDirectory() {
         const source = game.settings.get(this.ID, "fileUploadSource");
         const rootPath = "assets/drag-upload";
-        const parts = rootPath.split("/");
-        let currentPath = "";
-        
-        for (const part of parts) {
-            currentPath = currentPath ? `${currentPath}/${part}` : part;
-            try { 
-                await FilePicker.browse(source, currentPath); 
-            } catch (err) { 
-                try { await FilePicker.createDirectory(source, currentPath); } catch(e) {} 
+        try {
+            await FilePicker.browse(source, rootPath);
+        } catch (err) {
+            const parts = rootPath.split("/");
+            let current = "";
+            for (const p of parts) {
+                current += (current ? "/" : "") + p;
+                try { await FilePicker.createDirectory(source, current); } catch(e) {}
             }
-        }
-        for (const sub of ["tokens", "journals"]) {
-            try { await FilePicker.createDirectory(source, `${rootPath}/${sub}`); } catch(e) {}
+            try { await FilePicker.createDirectory(source, rootPath + "/tokens"); } catch(e) {}
+            try { await FilePicker.createDirectory(source, rootPath + "/journals"); } catch(e) {}
         }
     }
 }
 
 Hooks.once("init", () => DragUploadEngine.init());
-
 Hooks.on("ready", () => {
     if (game.user.isGM) {
         setTimeout(() => DragUploadEngine.ensureServerDirectory(), 1000);
+        window.addEventListener("drop", (ev) => DragUploadEngine.handleDrop(ev));
     }
-    window.addEventListener("drop", (ev) => DragUploadEngine.handleDrop(ev));
 });
