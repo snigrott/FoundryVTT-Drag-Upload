@@ -1,6 +1,6 @@
 /**
  * Drag Upload (V13 Optimized & S3 Ready)
- * Version 3.3.0
+ * Version 3.3.2
  * * FEATURES:
  * - S3, Forge, and Local Data storage compatibility.
  * - Sequential folder creation to prevent DB race conditions.
@@ -16,6 +16,7 @@ class DragUploadEngine {
     static init() {
         this.registerSettings();
         window.addEventListener("wheel", (ev) => this._onWheel(ev), { passive: false });
+        window.addEventListener("drop", (ev) => this.handleDrop(ev));
     }
 
     static registerSettings() {
@@ -41,7 +42,6 @@ class DragUploadEngine {
         event.preventDefault();
         event.stopPropagation();
         
-        // Adjust size by 0.5 grid units per scroll tick
         const delta = event.deltaY < 0 ? 0.5 : -0.5; 
         let newSize = Math.max(0.5, hover.document.width + delta);
         hover.document.update({ width: newSize, height: newSize });
@@ -51,7 +51,6 @@ class DragUploadEngine {
         const files = event.dataTransfer.files;
         if (!files?.length || !canvas.ready || !game.user.isGM) return;
 
-        // Ensure we aren't dropping onto UI elements
         const isUI = event.target.closest(".window-app, #sidebar, #controls, #navigation, #players");
         if (isUI || ["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName)) return;
 
@@ -66,9 +65,8 @@ class DragUploadEngine {
         const activeTool = ui.controls.activeControl; 
         await this.ensureSidebarFolders(activeTool);
 
-        ui.notifications.info(`Uploading ${files.length} items...`);
+        ui.notifications.info(`Processing ${files.length} uploads...`);
 
-        // Concurrent uploads for maximum speed
         const uploads = Array.from(files).map((file, i) => {
             const offset = i * 20;
             const cleanName = file.name.replace(/\.[^/.]+$/, "");
@@ -77,7 +75,9 @@ class DragUploadEngine {
                 : this.createActor(event, file, cleanName, offset);
         });
 
-        await Promise.all(uploads);
+        // Collect all created documents to post in chat
+        const results = await Promise.all(uploads);
+        this.postToChat(results, activeTool);
     }
 
     static async ensureSidebarFolders(tool) {
@@ -119,7 +119,9 @@ class DragUploadEngine {
         };
         
         if (!event.shiftKey) Object.assign(tokenData, canvas.grid.getSnappedPosition(tokenData.x, tokenData.y));
-        await canvas.scene.createEmbeddedDocuments('Token', [tokenData]);
+        await canvas.scene.createEmbeddedDocuments('Token', [tokenData], {parent: canvas.scene});
+        
+        return actor; // Return for chat message logic
     }
 
     static async createHandout(event, file, cleanName, offset) {
@@ -140,17 +142,32 @@ class DragUploadEngine {
         await canvas.scene.createEmbeddedDocuments('Note', [{
             entryId: journal.id, x: coords.x, y: coords.y,
             texture: { src: "icons/svg/book.svg" }
-        }]);
+        }], {parent: canvas.scene});
 
         journal.show("image", true);
+        return journal; // Return for chat message logic
     }
 
-static getCoords(event, offset) {
-        const t = canvas.stage.worldTransform;
-        return {
-            x: ((event.clientX - t.tx) / canvas.stage.scale.x) + offset,
-            y: ((event.clientY - t.ty) / canvas.stage.scale.y) + offset
-        };
+    static getCoords(event, offset) {
+        const rect = canvas.app.view.getBoundingClientRect();
+        const screenX = event.clientX - rect.left;
+        const screenY = event.clientY - rect.top;
+        const coords = canvas.canvasCoordinatesFromScreen({x: screenX, y: screenY});
+        return { x: coords.x + offset, y: coords.y + offset };
+    }
+
+    /**
+     * Creates a chat message with clickable links to all new items.
+     */
+    static postToChat(documents, tool) {
+        const typeLabel = tool === "notes" ? "JournalEntry" : "Actor";
+        const links = documents.map(doc => `@${typeLabel}[${doc.id}]{${doc.name}}`).join(", ");
+        
+        ChatMessage.create({
+            user: game.user.id,
+            whisper: [game.user.id],
+            content: `<b>Drag Upload Complete</b><br>Created ${documents.length} items:<br>${links}`
+        });
     }
 
     static async ensureServerDirectory() {
@@ -174,10 +191,8 @@ static getCoords(event, offset) {
 }
 
 Hooks.once("init", () => DragUploadEngine.init());
-
 Hooks.on("ready", () => {
     if (game.user.isGM) {
         setTimeout(() => DragUploadEngine.ensureServerDirectory(), 1000);
     }
-    window.addEventListener("drop", (ev) => DragUploadEngine.handleDrop(ev));
 });
