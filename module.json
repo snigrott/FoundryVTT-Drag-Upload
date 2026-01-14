@@ -1,8 +1,8 @@
 {
   "id": "drag-upload",
   "title": "Drag Upload",
-  "description": "Streamline game prep by dragging multiple images onto the canvas to create Tokens with automatic folder organization.",
-  "version": "3.1.4",
+  "description": "Streamline game prep by dragging multiple images onto the canvas. Optimized for V13 with Alt+Scroll resizing.",
+  "version": "3.3.0",
   "compatibility": {
     "minimum": "12",
     "verified": "13"
