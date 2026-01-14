@@ -145,10 +145,12 @@ class DragUploadEngine {
         journal.show("image", true);
     }
 
-    static getCoords(event, offset) {
-        const point = new PIXI.Point(event.clientX, event.clientY);
-        const local = canvas.app.stage.mapPointToParent(point);
-        return { x: local.x + offset, y: local.y + offset };
+static getCoords(event, offset) {
+        const t = canvas.stage.worldTransform;
+        return {
+            x: ((event.clientX - t.tx) / canvas.stage.scale.x) + offset,
+            y: ((event.clientY - t.ty) / canvas.stage.scale.y) + offset
+        };
     }
 
     static async ensureServerDirectory() {
