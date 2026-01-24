@@ -1,7 +1,7 @@
 {
   "id": "drag-upload",
   "title": "Drag Upload",
-  "description": "Streamline game prep by dragging images or documents onto the canvas to auto create, Actors, Journal Entires, or Tiles. Optimized for V13 with Alt+Scroll resizing.",
+  "description": "Dragging images or documents onto the canvas to auto create Actors Journal Entires or Tiles. Optimized for V13 with Alt+Scroll resizing.",
   "version": "4",
   "compatibility": {
     "minimum": "12",
