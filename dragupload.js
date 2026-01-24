@@ -1,6 +1,6 @@
 /**
- * Drag Upload (V13 - Best Practice Nested Folders)
- * Version 4.0.0
+ * Drag Upload (V13 - Flat Structure & Interactive Naming)
+ * Version: 4.0.0
  * ID: dragupload
  */
 
@@ -9,24 +9,13 @@ class DragUploadEngine {
 
     static init() {
         this.registerSettings();
-        // Add the Alt+Scroll resizing listener
         window.addEventListener("wheel", (ev) => this._onWheel(ev), { passive: false });
-        // Prevent default browser behavior for file drags
         window.addEventListener("dragover", (ev) => {
             if (ev.dataTransfer.types.includes("Files")) ev.preventDefault();
         });
     }
 
     static registerSettings() {
-        game.settings.register(this.ID, "parentFolderName", { 
-            name: "Main Parent Folder", 
-            hint: "The top-level folder in your sidebar for all drag-uploads.",
-            scope: "world", 
-            config: true, 
-            type: String, 
-            default: "Drag Upload Assets" 
-        });
-
         const sourceChoices = { "data": "User Data", "s3": "S3 Storage" };
         if (typeof ForgeVTT !== "undefined" && ForgeVTT.usingTheForge) sourceChoices["forgevtt"] = "The Forge";
         
@@ -55,78 +44,85 @@ class DragUploadEngine {
     static async handleDrop(event) {
         const files = event.dataTransfer.files;
         if (!files?.length || !canvas.ready || !game.user.isGM) return;
-        
-        // Don't trigger if dropping on UI elements like the sidebar or open windows
         if (event.target.closest(".window-app, #sidebar")) return;
 
         event.preventDefault();
         event.stopPropagation();
 
-        // Convert screen pixels to world coordinates
         const t = canvas.stage.worldTransform;
         const coords = {
             x: (event.clientX - t.tx) / canvas.stage.scale.x,
             y: (event.clientY - t.ty) / canvas.stage.scale.y
         };
 
+        // Suggest the name of the first file (minus extension)
+        const defaultName = files[0].name.replace(/\.[^/.]+$/, "");
+
         new Dialog({
             title: `Import ${files.length} File(s)`,
-            content: `<p style="text-align:center">How should these be organized?</p>`,
+            content: `
+                <div style="margin-bottom: 10px;">
+                    <label style="display: block; margin-bottom: 5px;"><strong>Asset Name:</strong></label>
+                    <input type="text" id="drag-upload-name" value="${defaultName}" style="width: 100%; margin-bottom: 10px;" autofocus>
+                    <p style="font-size: 0.8em; color: #666;">(Multiple files will be numbered automatically)</p>
+                </div>
+            `,
             buttons: {
                 actor: { 
                     icon: '<i class="fas fa-user"></i>', 
-                    label: "Actors", 
-                    callback: () => this.processFiles(files, coords, "actor", event.shiftKey) 
+                    label: "Actor", 
+                    callback: (html) => {
+                        const name = html.find('#drag-upload-name').val() || defaultName;
+                        this.processFiles(files, coords, "actor", event.shiftKey, name);
+                    }
                 },
                 journal: { 
                     icon: '<i class="fas fa-book-open"></i>', 
-                    label: "Handouts", 
-                    callback: () => this.processFiles(files, coords, "journal", event.shiftKey) 
+                    label: "Handout", 
+                    callback: (html) => {
+                        const name = html.find('#drag-upload-name').val() || defaultName;
+                        this.processFiles(files, coords, "journal", event.shiftKey, name);
+                    }
                 },
                 tile: { 
                     icon: '<i class="fas fa-cubes"></i>', 
-                    label: "Tiles", 
-                    callback: () => this.processFiles(files, coords, "tile", event.shiftKey) 
+                    label: "Tile", 
+                    callback: (html) => {
+                        const name = html.find('#drag-upload-name').val() || defaultName;
+                        this.processFiles(files, coords, "tile", event.shiftKey, name);
+                    }
                 }
             },
             default: "actor"
         }).render(true);
     }
 
-    static async processFiles(files, coords, type, isShift) {
+    static async processFiles(files, coords, type, isShift, customName) {
         const source = game.settings.get(this.ID, "fileUploadSource");
-        const parentName = game.settings.get(this.ID, "parentFolderName");
-        const childName = type === "actor" ? "Actors" : "Handouts";
+        const folderName = type === "actor" ? "Drag Upload: Actors" : "Drag Upload: Handouts";
         const folderType = type === "actor" ? "Actor" : "JournalEntry";
         
-        // Clean Server Path: uploads/dragupload/actors
         const serverPath = `uploads/${this.ID}/${type}s`;
         await this.ensureServerDirectory(source, serverPath);
 
         let folderId = null;
         if (type !== "tile") {
-            // Get or Create Parent Sidebar Folder
-            let parent = game.folders.find(f => f.name === parentName && f.type === folderType);
-            if (!parent) parent = await Folder.create({ name: parentName, type: folderType, color: "#444444" });
-
-            // Get or Create Child Sidebar Folder inside Parent
-            let child = game.folders.find(f => f.name === childName && f.type === folderType && f.folder?.id === parent.id);
-            if (!child) child = await Folder.create({ name: childName, type: folderType, folder: parent.id });
-            
-            folderId = child.id;
+            let folder = game.folders.find(f => f.name === folderName && f.type === folderType);
+            if (!folder) folder = await Folder.create({ name: folderName, type: folderType });
+            folderId = folder.id;
         }
 
         ui.notifications.info(`Uploading ${files.length} assets...`);
 
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
-            const cleanName = file.name.replace(/\.[^/.]+$/, "");
-            const offset = i * 20; // Stagger placement so they don't overlap perfectly
+            const finalName = files.length > 1 ? `${customName} (${i + 1})` : customName;
+            const offset = i * 20;
             const finalCoords = { x: coords.x + offset, y: coords.y + offset };
 
             try {
-                if (type === "actor") await this.createActor(source, serverPath, file, cleanName, finalCoords, folderId, isShift);
-                else if (type === "journal") await this.createHandout(source, serverPath, file, cleanName, finalCoords, folderId);
+                if (type === "actor") await this.createActor(source, serverPath, file, finalName, finalCoords, folderId, isShift);
+                else if (type === "journal") await this.createHandout(source, serverPath, file, finalName, finalCoords, folderId);
                 else await this.createTile(source, serverPath, file, finalCoords);
             } catch (err) {
                 console.error(`${this.ID} | Error processing ${file.name}:`, err);
@@ -149,13 +145,13 @@ class DragUploadEngine {
 
         if (compendiumSource) {
             actorData = foundry.utils.mergeObject(compendiumSource.toObject(), actorData);
-            delete actorData._id; // Ensure we create a new instance, not a link to the compendium ID
+            delete actorData._id;
+            actorData.name = name; // Retain the new name
+            actorData.img = upload.path; // Retain the new image
         }
 
         const actor = await Actor.create(actorData);
         let tokenData = { name: name, actorId: actor.id, actorLink: true, texture: { src: upload.path }, x: coords.x, y: coords.y };
-        
-        // Snap to grid unless Shift is held
         if (!isShift) Object.assign(tokenData, canvas.grid.getSnappedPosition(tokenData.x, tokenData.y));
         await canvas.scene.createEmbeddedDocuments('Token', [tokenData]);
     }
@@ -165,7 +161,7 @@ class DragUploadEngine {
         const journal = await JournalEntry.create({
             name: name, folder: folderId,
             pages: [{ name: name, type: "image", src: upload.path }],
-            ownership: { default: 2 } // Observer permission for players
+            ownership: { default: 2 }
         });
         await canvas.scene.createEmbeddedDocuments('Note', [{
             entryId: journal.id, x: coords.x, y: coords.y, texture: { src: "icons/svg/book.svg" }
