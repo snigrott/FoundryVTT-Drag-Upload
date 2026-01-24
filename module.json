@@ -3,12 +3,7 @@
   "title": "Drag Upload",
   "description": "Refactoring of Cody Swendrowski's original Drag Upload for V13. Drag images onto the canvas to create Actors, Journal Entries, or Tiles. Provides intelligent compendium matching and Alt+Scroll resizing.",
   "version": "4.7.1",
-  "library": false,
-  "manifestPlusVersion": "1.2.0",
-  "compatibility": {
-    "minimum": "12",
-    "verified": "13"
-  },
+  "type": "module",
   "authors": [
     {
       "name": "Cody Swendrowski"
@@ -17,7 +12,13 @@
       "name": "Brian Smith"
     }
   ],
-  "esmodules": ["dragupload.js"],
+  "compatibility": {
+    "minimum": "13",
+    "verified": "13"
+  },
+  "esmodules": [
+    "dragupload.js"
+  ],
   "url": "https://github.com/snigrott/FoundryVTT-Drag-Upload",
   "manifest": "https://github.com/snigrott/FoundryVTT-Drag-Upload/releases/latest/download/module.json",
   "download": "https://github.com/snigrott/FoundryVTT-Drag-Upload/releases/latest/download/dragupload.zip"
