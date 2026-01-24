@@ -1,6 +1,6 @@
 /**
- * Drag Upload (V13 - Intelligent Compendium Matcher)
- * Version: 4.4.0
+ * Drag Upload (V13 - Production Master)
+ * Version: 4.5.0
  * ID: dragupload
  */
 
@@ -40,8 +40,6 @@ class DragUploadEngine {
 
         const t = canvas.stage.worldTransform;
         const coords = { x: (event.clientX - t.tx) / canvas.stage.scale.x, y: (event.clientY - t.ty) / canvas.stage.scale.y };
-
-        // Bug Fix: Proper async handling for index gathering
         const allNames = await this.getCompendiumNames();
 
         let index = 0;
@@ -74,7 +72,7 @@ class DragUploadEngine {
         return new Promise((resolve) => {
             const initialName = bestMatch || defaultName;
             const isMatch = !!bestMatch;
-            const listId = `list-${index}`; // Unique ID per file to prevent UI ghosting
+            const listId = `list-${index}-${Date.now()}`;
 
             const d = new Dialog({
                 title: `Import ${index + 1}/${total}: ${file.name}`,
@@ -119,13 +117,10 @@ class DragUploadEngine {
     static async getCompendiumNames() {
         const actorPacks = game.packs.filter(p => p.metadata.type === "Actor");
         let names = new Set();
-        
-        // Bug Fix: Ensure all indexes are fully loaded before proceeding
         await Promise.all(actorPacks.map(async (pack) => {
             const index = await pack.getIndex();
             index.forEach(e => names.add(e.name));
         }));
-        
         return Array.from(names).sort();
     }
 
@@ -156,21 +151,31 @@ class DragUploadEngine {
         let actorData = {
             name: name,
             type: game.system.id === "dnd5e" ? "npc" : Object.keys(CONFIG.Actor.documentClass.metadata.types)[0],
-            img: upload.path, 
-            folder: folderId,
-            prototypeToken: { name: name, texture: { src: upload.path }, displayName: 20, actorLink: true }
+            img: upload.path, folder: folderId,
+            prototypeToken: { name: name, texture: { src: upload.path }, displayName: 20, actorLink: false }
         };
 
         if (compendiumSource) {
-            const sourceObj = compendiumSource.toObject();
-            actorData = foundry.utils.mergeObject(sourceObj, actorData);
+            actorData = foundry.utils.mergeObject(compendiumSource.toObject(), actorData);
             delete actorData._id;
+            actorData.name = name;
             actorData.img = upload.path;
+            actorData.prototypeToken.name = name;
             actorData.prototypeToken.texture.src = upload.path;
+            actorData.prototypeToken.actorLink = false;
         }
 
         const actor = await Actor.create(actorData);
-        let tokenData = { name: name, actorId: actor.id, actorLink: true, texture: { src: upload.path }, x: coords.x, y: coords.y };
+        
+        let finalTokenName = name;
+        const existingTokens = canvas.scene.tokens.filter(t => t.name.startsWith(name));
+        if (existingTokens.length > 0) finalTokenName = `${name} ${existingTokens.length + 1}`;
+
+        let tokenData = { 
+            name: finalTokenName, actorId: actor.id, actorLink: false, 
+            texture: { src: upload.path }, x: coords.x, y: coords.y, displayName: 20 
+        };
+
         if (!isShift) Object.assign(tokenData, canvas.grid.getSnappedPosition(tokenData.x, tokenData.y));
         await canvas.scene.createEmbeddedDocuments('Token', [tokenData]);
     }
@@ -206,11 +211,7 @@ class DragUploadEngine {
         let current = "";
         for (const p of parts) {
             current += (current ? "/" : "") + p;
-            try { 
-                await FilePicker.createDirectory(source, current); 
-            } catch(e) {
-                // Bug Fix: Ignore error if directory already exists
-            }
+            try { await FilePicker.createDirectory(source, current); } catch(e) {}
         }
     }
 }
