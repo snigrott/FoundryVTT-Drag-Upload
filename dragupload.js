@@ -1,6 +1,6 @@
 /**
- * Drag Upload (V13)
- * Version: 4.7.1
+ * Drag Upload (Cleaned)
+ * Version: 4.7.2
  * ID: dragupload
  */
 
@@ -38,7 +38,6 @@ class DragUploadEngine {
         const timestamp = Date.now();
         const parts = file.name.split('.');
         const ext = parts.pop();
-        // Clean the filename for server safety (remove special chars/spaces)
         const base = parts.join('.').replace(/[^a-zA-Z0-9]/g, "_");
         const newName = `${base}_${timestamp}.${ext}`;
         return new File([file], newName, { type: file.type, lastModified: file.lastModified });
@@ -97,41 +96,14 @@ class DragUploadEngine {
                         <datalist id="${listId}">
                             ${allNames.map(n => `<option value="${n}">`).join('')}
                         </datalist>
-                        <p id="match-info" style="font-size: 0.85em; margin-top: 5px; color: ${isMatch ? '#2ecc71' : '#e67e22'};">
-                            ${isMatch ? `✓ Found match: ${bestMatch}` : `⚠ No exact match found.`}
-                        </p>
                     </div>
                 `,
                 buttons: {
-                    actor: { 
-                        label: "<i class='fas fa-user'></i> Actor", 
-                        callback: (html) => resolve({ type: "actor", name: html.find('#drag-upload-name').val() }) 
-                    },
-                    journal: { 
-                        label: "<i class='fas fa-book-open'></i> Handout", 
-                        callback: (html) => resolve({ type: "journal", name: html.find('#drag-upload-name').val() }) 
-                    },
-                    skip: { 
-                        label: "<i class='fas fa-times'></i> Skip", 
-                        callback: () => resolve(null) 
-                    }
+                    actor: { label: "<i class='fas fa-user'></i> Actor", callback: (html) => resolve({ type: "actor", name: html.find('#drag-upload-name').val() }) },
+                    journal: { label: "<i class='fas fa-book-open'></i> Handout", callback: (html) => resolve({ type: "journal", name: html.find('#drag-upload-name').val() }) },
+                    skip: { label: "<i class='fas fa-times'></i> Skip", callback: () => resolve(null) }
                 },
-                default: "actor",
-                render: (html) => {
-                    const input = html.find('#drag-upload-name');
-                    const info = html.find('#match-info');
-                    input.on('input', () => {
-                        const val = input.val();
-                        const match = allNames.find(n => n === val);
-                        if (match) {
-                            input.css("border-color", "#2ecc71");
-                            info.text(`✓ Found match: ${match}`).css("color", "#2ecc71");
-                        } else {
-                            input.css("border-color", "#e67e22");
-                            info.text("⚠ Custom name (Basic Actor)").css("color", "#e67e22");
-                        }
-                    });
-                }
+                default: "actor"
             }, { width: 400 });
             d.render(true);
         });
@@ -140,10 +112,10 @@ class DragUploadEngine {
     static async getCompendiumNames() {
         const actorPacks = game.packs.filter(p => p.metadata.type === "Actor");
         let names = new Set();
-        await Promise.all(actorPacks.map(async (pack) => {
+        for (const pack of actorPacks) {
             const index = await pack.getIndex();
             index.forEach(e => names.add(e.name));
-        }));
+        }
         return Array.from(names).sort();
     }
 
@@ -156,16 +128,11 @@ class DragUploadEngine {
         await this.ensureServerDirectory(source, serverPath);
         const uniqueFile = this.getUniqueFile(file);
 
-        let folderId = null;
-        if (type !== "tile") {
-            let folder = game.folders.find(f => f.name === folderName && f.type === folderType);
-            if (!folder) folder = await Folder.create({ name: folderName, type: folderType });
-            folderId = folder.id;
-        }
+        let folder = game.folders.find(f => f.name === folderName && f.type === folderType);
+        if (!folder) folder = await Folder.create({ name: folderName, type: folderType });
 
-        if (type === "actor") await this.createActor(source, serverPath, uniqueFile, customName, coords, folderId, isShift);
-        else if (type === "journal") await this.createHandout(source, serverPath, uniqueFile, customName, coords, folderId);
-        else await this.createTile(source, serverPath, uniqueFile, coords);
+        if (type === "actor") await this.createActor(source, serverPath, uniqueFile, customName, coords, folder.id, isShift);
+        else if (type === "journal") await this.createHandout(source, serverPath, uniqueFile, customName, coords, folder.id);
     }
 
     static async createActor(source, path, file, name, coords, folderId, isShift) {
@@ -175,7 +142,8 @@ class DragUploadEngine {
         let actorData = {
             name: name,
             type: game.system.id === "dnd5e" ? "npc" : Object.keys(CONFIG.Actor.documentClass.metadata.types)[0],
-            img: upload.path, folder: folderId,
+            img: upload.path, 
+            folder: folderId,
             prototypeToken: { name: name, texture: { src: upload.path }, displayName: 20, actorLink: false }
         };
 
@@ -184,20 +152,18 @@ class DragUploadEngine {
             delete actorData._id;
             actorData.name = name;
             actorData.img = upload.path;
-            actorData.prototypeToken.name = name;
             actorData.prototypeToken.texture.src = upload.path;
-            actorData.prototypeToken.actorLink = false;
         }
 
         const actor = await Actor.create(actorData);
         
-        let finalTokenName = name;
-        const existingTokens = canvas.scene.tokens.filter(t => t.name.startsWith(name));
-        if (existingTokens.length > 0) finalTokenName = `${name} ${existingTokens.length + 1}`;
-
+        // Simple token creation - let Foundry or other modules handle the naming
         let tokenData = { 
-            name: finalTokenName, actorId: actor.id, actorLink: false, 
-            texture: { src: upload.path }, x: coords.x, y: coords.y, displayName: 20 
+            name: name, 
+            actorId: actor.id, 
+            texture: { src: upload.path }, 
+            x: coords.x, 
+            y: coords.y 
         };
 
         if (!isShift) Object.assign(tokenData, canvas.grid.getSnappedPosition(tokenData.x, tokenData.y));
@@ -212,12 +178,6 @@ class DragUploadEngine {
             ownership: { default: 2 }
         });
         await canvas.scene.createEmbeddedDocuments('Note', [{ entryId: journal.id, x: coords.x, y: coords.y, texture: { src: "icons/svg/book.svg" } }]);
-    }
-
-    static async createTile(source, path, file, coords) {
-        const upload = await FilePicker.upload(source, path, file);
-        const tex = await loadTexture(upload.path);
-        await canvas.scene.createEmbeddedDocuments('Tile', [{ texture: { src: upload.path }, width: tex.width, height: tex.height, x: coords.x, y: coords.y }]);
     }
 
     static async findMonsterStats(name) {
