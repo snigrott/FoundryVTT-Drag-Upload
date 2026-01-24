@@ -1,5 +1,5 @@
 /**
- * Drag Upload (V13 - Gold Master)
+ * Drag Upload (V13)
  * Version: 4.7.1
  * ID: dragupload
  */
