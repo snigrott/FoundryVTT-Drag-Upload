@@ -1,6 +1,6 @@
 /**
  * Drag Upload (V13 - Flat Structure & Interactive Naming)
- * Version: 4.0.0
+ * Version: 4.0.1
  * ID: dragupload
  */
 
