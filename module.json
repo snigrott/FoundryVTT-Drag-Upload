@@ -2,7 +2,7 @@
   "id": "dragupload",
   "title": "Drag Upload",
   "description": "Dragging images or documents onto the canvas to auto create Actors, Journal Entries, or Tiles. Optimized for V13 with Alt+Scroll resizing.",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "compatibility": {
     "minimum": "12",
     "verified": "13"
