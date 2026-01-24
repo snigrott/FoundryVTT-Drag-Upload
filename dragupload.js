@@ -1,6 +1,6 @@
 /**
- * Drag Upload (V13 - Production Master)
- * Version: 4.5.0
+ * Drag Upload (V13 - Gold Master)
+ * Version: 4.7.1
  * ID: dragupload
  */
 
@@ -30,6 +30,20 @@ class DragUploadEngine {
         hover.document.update({ width: Math.max(1, hover.document.width + delta), height: Math.max(1, hover.document.height + delta) });
     }
 
+    static toTitleCase(str) {
+        return str.toLowerCase().split(/[_\s-]+/).map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    }
+
+    static getUniqueFile(file) {
+        const timestamp = Date.now();
+        const parts = file.name.split('.');
+        const ext = parts.pop();
+        // Clean the filename for server safety (remove special chars/spaces)
+        const base = parts.join('.').replace(/[^a-zA-Z0-9]/g, "_");
+        const newName = `${base}_${timestamp}.${ext}`;
+        return new File([file], newName, { type: file.type, lastModified: file.lastModified });
+    }
+
     static async handleDrop(event) {
         const files = event.dataTransfer.files;
         if (!files?.length || !canvas.ready || !game.user.isGM) return;
@@ -44,9 +58,9 @@ class DragUploadEngine {
 
         let index = 0;
         for (const file of files) {
-            const fileName = file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ");
+            const rawName = file.name.replace(/\.[^/.]+$/, "");
+            const fileName = this.toTitleCase(rawName);
             const bestMatch = this.findBestMatch(fileName, allNames);
-            
             const result = await this.requestImportDetails(file, fileName, bestMatch, index, files.length, allNames);
             
             if (result) {
@@ -89,9 +103,18 @@ class DragUploadEngine {
                     </div>
                 `,
                 buttons: {
-                    actor: { label: "Actor", callback: (html) => resolve({ type: "actor", name: html.find('#drag-upload-name').val() }) },
-                    journal: { label: "Handout", callback: (html) => resolve({ type: "journal", name: html.find('#drag-upload-name').val() }) },
-                    skip: { label: "Skip", callback: () => resolve(null) }
+                    actor: { 
+                        label: "<i class='fas fa-user'></i> Actor", 
+                        callback: (html) => resolve({ type: "actor", name: html.find('#drag-upload-name').val() }) 
+                    },
+                    journal: { 
+                        label: "<i class='fas fa-book-open'></i> Handout", 
+                        callback: (html) => resolve({ type: "journal", name: html.find('#drag-upload-name').val() }) 
+                    },
+                    skip: { 
+                        label: "<i class='fas fa-times'></i> Skip", 
+                        callback: () => resolve(null) 
+                    }
                 },
                 default: "actor",
                 render: (html) => {
@@ -109,7 +132,7 @@ class DragUploadEngine {
                         }
                     });
                 }
-            });
+            }, { width: 400 });
             d.render(true);
         });
     }
@@ -131,6 +154,7 @@ class DragUploadEngine {
         const serverPath = `uploads/${this.ID}/${type}s`;
         
         await this.ensureServerDirectory(source, serverPath);
+        const uniqueFile = this.getUniqueFile(file);
 
         let folderId = null;
         if (type !== "tile") {
@@ -139,9 +163,9 @@ class DragUploadEngine {
             folderId = folder.id;
         }
 
-        if (type === "actor") await this.createActor(source, serverPath, file, customName, coords, folderId, isShift);
-        else if (type === "journal") await this.createHandout(source, serverPath, file, customName, coords, folderId);
-        else await this.createTile(source, serverPath, file, coords);
+        if (type === "actor") await this.createActor(source, serverPath, uniqueFile, customName, coords, folderId, isShift);
+        else if (type === "journal") await this.createHandout(source, serverPath, uniqueFile, customName, coords, folderId);
+        else await this.createTile(source, serverPath, uniqueFile, coords);
     }
 
     static async createActor(source, path, file, name, coords, folderId, isShift) {
