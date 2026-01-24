@@ -2,7 +2,7 @@
   "id": "drag-upload",
   "title": "Drag Upload",
   "description": "Streamline game prep by dragging multiple images onto the canvas. Optimized for V13 with Alt+Scroll resizing.",
-  "version": "3.7.1",
+  "version": "4",
   "compatibility": {
     "minimum": "12",
     "verified": "13"
