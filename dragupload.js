@@ -1,6 +1,6 @@
 /**
- * Drag Upload (V13 Choice Dialog - Custom Folders)
- * Version 3.7.1
+ * Drag Upload (V13 - Best Practice Nested Folders)
+ * Version 4.0.0
  */
 
 class DragUploadEngine {
@@ -15,13 +15,24 @@ class DragUploadEngine {
     }
 
     static registerSettings() {
-        game.settings.register(this.ID, "actorFolderName", { name: "Actor Folder", scope: "world", config: true, type: String, default: "Drag Uploads" });
-        // FIXED: Changed default to "Handouts"
-        game.settings.register(this.ID, "journalFolderName", { name: "Journal Folder", scope: "world", config: true, type: String, default: "Handouts" });
-        
+        game.settings.register(this.ID, "parentFolderName", { 
+            name: "Main Parent Folder", 
+            scope: "world", 
+            config: true, 
+            type: String, 
+            default: "Drag Upload Assets" 
+        });
+
         const sourceChoices = { "data": "User Data", "s3": "S3 Storage" };
         if (typeof ForgeVTT !== "undefined" && ForgeVTT.usingTheForge) sourceChoices["forgevtt"] = "The Forge";
-        game.settings.register(this.ID, "fileUploadSource", { name: "Upload Source", scope: "world", config: true, type: String, default: "data", choices: sourceChoices });
+        game.settings.register(this.ID, "fileUploadSource", { 
+            name: "Upload Source", 
+            scope: "world", 
+            config: true, 
+            type: String, 
+            default: "data", 
+            choices: sourceChoices 
+        });
     }
 
     static _onWheel(event) {
@@ -49,23 +60,11 @@ class DragUploadEngine {
 
         new Dialog({
             title: `Import ${files.length} File(s)`,
-            content: `<p style="text-align:center">Select import type for these assets:</p>`,
+            content: `<p style="text-align:center">Organize these assets as:</p>`,
             buttons: {
-                actor: {
-                    icon: '<i class="fas fa-user"></i>',
-                    label: "Actor",
-                    callback: () => this.processFiles(files, coords, "actor", event.shiftKey)
-                },
-                journal: {
-                    icon: '<i class="fas fa-book-open"></i>',
-                    label: "Handout",
-                    callback: () => this.processFiles(files, coords, "journal", event.shiftKey)
-                },
-                tile: {
-                    icon: '<i class="fas fa-cubes"></i>',
-                    label: "Tile",
-                    callback: () => this.processFiles(files, coords, "tile", event.shiftKey)
-                }
+                actor: { icon: '<i class="fas fa-user"></i>', label: "Actors", callback: () => this.processFiles(files, coords, "actor", event.shiftKey) },
+                journal: { icon: '<i class="fas fa-book-open"></i>', label: "Handouts", callback: () => this.processFiles(files, coords, "journal", event.shiftKey) },
+                tile: { icon: '<i class="fas fa-cubes"></i>', label: "Tiles", callback: () => this.processFiles(files, coords, "tile", event.shiftKey) }
             },
             default: "actor"
         }).render(true);
@@ -73,17 +72,24 @@ class DragUploadEngine {
 
     static async processFiles(files, coords, type, isShift) {
         const source = game.settings.get(this.ID, "fileUploadSource");
-        const folderName = game.settings.get(this.ID, type === "actor" ? "actorFolderName" : "journalFolderName");
+        const parentName = game.settings.get(this.ID, "parentFolderName");
+        const childName = type === "actor" ? "Actors" : "Handouts";
         const folderType = type === "actor" ? "Actor" : "JournalEntry";
         
-        const serverPath = `assets/drag-upload/${type}s`;
+        const serverPath = `uploads/${this.ID}/${type}s`;
         await this.ensureServerDirectory(source, serverPath);
 
         let folderId = null;
         if (type !== "tile") {
-            let folder = game.folders.find(f => f.name === folderName && f.type === folderType);
-            if (!folder) folder = await Folder.create({ name: folderName, type: folderType });
-            folderId = folder.id;
+            // Find or Create Parent (with a distinct color)
+            let parent = game.folders.find(f => f.name === parentName && f.type === folderType);
+            if (!parent) parent = await Folder.create({ name: parentName, type: folderType, color: "#444444" });
+
+            // Find or Create Child inside Parent
+            let child = game.folders.find(f => f.name === childName && f.type === folderType && f.folder?.id === parent.id);
+            if (!child) child = await Folder.create({ name: childName, type: folderType, folder: parent.id });
+            
+            folderId = child.id;
         }
 
         for (let i = 0; i < files.length; i++) {
