@@ -1,6 +1,6 @@
 /**
- * Drag Upload (V13 - Optimized for Batch Processing)
- * Version: 4.1.0
+ * Drag Upload (V13 - Individual Naming & Sequential Processing)
+ * Version: 4.2.0
  * ID: dragupload
  */
 
@@ -55,48 +55,63 @@ class DragUploadEngine {
             y: (event.clientY - t.ty) / canvas.stage.scale.y
         };
 
-        const defaultName = files[0].name.replace(/\.[^/.]+$/, "");
-
-        new Dialog({
-            title: `Import ${files.length} File(s)`,
-            content: `
-                <div style="margin-bottom: 10px;">
-                    <label style="display: block; margin-bottom: 5px;"><strong>Asset Name:</strong></label>
-                    <input type="text" id="drag-upload-name" value="${defaultName}" style="width: 100%; margin-bottom: 10px;" autofocus>
-                    <p style="font-size: 0.8em; color: #666;">(Multiple files will be numbered automatically)</p>
-                </div>
-            `,
-            buttons: {
-                actor: { 
-                    icon: '<i class="fas fa-user"></i>', 
-                    label: "Actor", 
-                    callback: (html) => {
-                        const name = html.find('#drag-upload-name').val() || defaultName;
-                        this.processFiles(files, coords, "actor", event.shiftKey, name);
-                    }
-                },
-                journal: { 
-                    icon: '<i class="fas fa-book-open"></i>', 
-                    label: "Handout", 
-                    callback: (html) => {
-                        const name = html.find('#drag-upload-name').val() || defaultName;
-                        this.processFiles(files, coords, "journal", event.shiftKey, name);
-                    }
-                },
-                tile: { 
-                    icon: '<i class="fas fa-cubes"></i>', 
-                    label: "Tile", 
-                    callback: (html) => {
-                        const name = html.find('#drag-upload-name').val() || defaultName;
-                        this.processFiles(files, coords, "tile", event.shiftKey, name);
-                    }
-                }
-            },
-            default: "actor"
-        }).render(true);
+        // We process files one-by-one, showing a dialog for EACH
+        let index = 0;
+        for (const file of files) {
+            const fileName = file.name.replace(/\.[^/.]+$/, "");
+            
+            // This 'await' is the magic—it pauses the loop until you click a button
+            const result = await this.requestImportDetails(file, fileName, index, files.length);
+            
+            if (result) {
+                const offset = index * 20;
+                const finalCoords = { x: coords.x + offset, y: coords.y + offset };
+                await this.processSingleFile(file, finalCoords, result.type, event.shiftKey, result.name);
+            }
+            index++;
+        }
+        ui.notifications.info("All imports complete.");
     }
 
-    static async processFiles(files, coords, type, isShift, customName) {
+    static async requestImportDetails(file, defaultName, index, total) {
+        return new Promise((resolve) => {
+            new Dialog({
+                title: `Import ${index + 1} of ${total}: ${file.name}`,
+                content: `
+                    <div style="margin-bottom: 10px;">
+                        <label style="display: block; margin-bottom: 5px;"><strong>Asset Name:</strong></label>
+                        <input type="text" id="drag-upload-name" value="${defaultName}" style="width: 100%; margin-bottom: 10px;" autofocus>
+                    </div>
+                `,
+                buttons: {
+                    actor: { 
+                        icon: '<i class="fas fa-user"></i>', 
+                        label: "Actor", 
+                        callback: (html) => resolve({ type: "actor", name: html.find('#drag-upload-name').val() || defaultName }) 
+                    },
+                    journal: { 
+                        icon: '<i class="fas fa-book-open"></i>', 
+                        label: "Handout", 
+                        callback: (html) => resolve({ type: "journal", name: html.find('#drag-upload-name').val() || defaultName }) 
+                    },
+                    tile: { 
+                        icon: '<i class="fas fa-cubes"></i>', 
+                        label: "Tile", 
+                        callback: (html) => resolve({ type: "tile", name: html.find('#drag-upload-name').val() || defaultName }) 
+                    },
+                    cancel: {
+                        icon: '<i class="fas fa-times"></i>',
+                        label: "Skip",
+                        callback: () => resolve(null)
+                    }
+                },
+                default: "actor",
+                close: () => resolve(null)
+            }).render(true);
+        });
+    }
+
+    static async processSingleFile(file, coords, type, isShift, customName) {
         const source = game.settings.get(this.ID, "fileUploadSource");
         const folderName = type === "actor" ? "Drag Upload: Actors" : "Drag Upload: Handouts";
         const folderType = type === "actor" ? "Actor" : "JournalEntry";
@@ -104,7 +119,6 @@ class DragUploadEngine {
         const serverPath = `uploads/${this.ID}/${type}s`;
         await this.ensureServerDirectory(source, serverPath);
 
-        // Step 1: Create/Find Folder ONCE
         let folderId = null;
         if (type !== "tile") {
             let folder = game.folders.find(f => f.name === folderName && f.type === folderType);
@@ -112,26 +126,13 @@ class DragUploadEngine {
             folderId = folder.id;
         }
 
-        // Step 2: Process files one-by-one to prevent database collisions
-        let index = 0;
-        for (const file of files) {
-            ui.notifications.info(`Processing ${index + 1} of ${files.length}...`, {permanent: false});
-            
-            const finalName = files.length > 1 ? `${customName} (${index + 1})` : customName;
-            const offset = index * 20;
-            const finalCoords = { x: coords.x + offset, y: coords.y + offset };
-
-            try {
-                if (type === "actor") await this.createActor(source, serverPath, file, finalName, finalCoords, folderId, isShift);
-                else if (type === "journal") await this.createHandout(source, serverPath, file, finalName, finalCoords, folderId);
-                else await this.createTile(source, serverPath, file, finalCoords);
-            } catch (err) {
-                console.error(`${this.ID} | Error processing ${file.name}:`, err);
-                ui.notifications.error(`Failed to upload ${file.name}`);
-            }
-            index++;
+        try {
+            if (type === "actor") await this.createActor(source, serverPath, file, customName, coords, folderId, isShift);
+            else if (type === "journal") await this.createHandout(source, serverPath, file, customName, coords, folderId);
+            else await this.createTile(source, serverPath, file, coords);
+        } catch (err) {
+            console.error(`${this.ID} | Error:`, err);
         }
-        ui.notifications.info("All assets imported successfully.");
     }
 
     static async createActor(source, path, file, name, coords, folderId, isShift) {
