@@ -1,6 +1,6 @@
 /**
- * Drag Upload (V13 - Flat Structure & Interactive Naming)
- * Version: 4.0.1
+ * Drag Upload (V13 - Optimized for Batch Processing)
+ * Version: 4.1.0
  * ID: dragupload
  */
 
@@ -55,7 +55,6 @@ class DragUploadEngine {
             y: (event.clientY - t.ty) / canvas.stage.scale.y
         };
 
-        // Suggest the name of the first file (minus extension)
         const defaultName = files[0].name.replace(/\.[^/.]+$/, "");
 
         new Dialog({
@@ -105,6 +104,7 @@ class DragUploadEngine {
         const serverPath = `uploads/${this.ID}/${type}s`;
         await this.ensureServerDirectory(source, serverPath);
 
+        // Step 1: Create/Find Folder ONCE
         let folderId = null;
         if (type !== "tile") {
             let folder = game.folders.find(f => f.name === folderName && f.type === folderType);
@@ -112,12 +112,13 @@ class DragUploadEngine {
             folderId = folder.id;
         }
 
-        ui.notifications.info(`Uploading ${files.length} assets...`);
-
-        for (let i = 0; i < files.length; i++) {
-            const file = files[i];
-            const finalName = files.length > 1 ? `${customName} (${i + 1})` : customName;
-            const offset = i * 20;
+        // Step 2: Process files one-by-one to prevent database collisions
+        let index = 0;
+        for (const file of files) {
+            ui.notifications.info(`Processing ${index + 1} of ${files.length}...`, {permanent: false});
+            
+            const finalName = files.length > 1 ? `${customName} (${index + 1})` : customName;
+            const offset = index * 20;
             const finalCoords = { x: coords.x + offset, y: coords.y + offset };
 
             try {
@@ -126,9 +127,11 @@ class DragUploadEngine {
                 else await this.createTile(source, serverPath, file, finalCoords);
             } catch (err) {
                 console.error(`${this.ID} | Error processing ${file.name}:`, err);
+                ui.notifications.error(`Failed to upload ${file.name}`);
             }
+            index++;
         }
-        ui.notifications.info("Import Complete.");
+        ui.notifications.info("All assets imported successfully.");
     }
 
     static async createActor(source, path, file, name, coords, folderId, isShift) {
@@ -146,8 +149,9 @@ class DragUploadEngine {
         if (compendiumSource) {
             actorData = foundry.utils.mergeObject(compendiumSource.toObject(), actorData);
             delete actorData._id;
-            actorData.name = name; // Retain the new name
-            actorData.img = upload.path; // Retain the new image
+            actorData.name = name; 
+            actorData.img = upload.path;
+            actorData.prototypeToken.texture.src = upload.path;
         }
 
         const actor = await Actor.create(actorData);
@@ -166,7 +170,6 @@ class DragUploadEngine {
         await canvas.scene.createEmbeddedDocuments('Note', [{
             entryId: journal.id, x: coords.x, y: coords.y, texture: { src: "icons/svg/book.svg" }
         }]);
-        journal.show("image", true);
     }
 
     static async createTile(source, path, file, coords) {
