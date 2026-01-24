@@ -2,7 +2,7 @@
   "id": "dragupload",
   "title": "Drag Upload",
   "description": "Refactoring of Cody Swendrowski's original Drag Upload for V13. Drag images onto the canvas to create Actors, Journal Entries, or Tiles. Provides intelligent compendium matching and Alt+Scroll resizing.",
-  "version": "4.5.0",
+  "version": "4.7.1",
   "library": false,
   "manifestPlusVersion": "1.2.0",
   "compatibility": {
