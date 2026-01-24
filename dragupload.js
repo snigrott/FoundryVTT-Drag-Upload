@@ -1,6 +1,6 @@
 /**
- * Drag Upload (V13 - Individual Naming & Sequential Processing)
- * Version: 4.2.0
+ * Drag Upload (V13 - Intelligent Compendium Matcher)
+ * Version: 4.4.0
  * ID: dragupload
  */
 
@@ -18,15 +18,7 @@ class DragUploadEngine {
     static registerSettings() {
         const sourceChoices = { "data": "User Data", "s3": "S3 Storage" };
         if (typeof ForgeVTT !== "undefined" && ForgeVTT.usingTheForge) sourceChoices["forgevtt"] = "The Forge";
-        
-        game.settings.register(this.ID, "fileUploadSource", { 
-            name: "Upload Source", 
-            scope: "world", 
-            config: true, 
-            type: String, 
-            default: "data", 
-            choices: sourceChoices 
-        });
+        game.settings.register(this.ID, "fileUploadSource", { name: "Upload Source", scope: "world", config: true, type: String, default: "data", choices: sourceChoices });
     }
 
     static _onWheel(event) {
@@ -35,10 +27,7 @@ class DragUploadEngine {
         if (!hover) return;
         event.preventDefault();
         const delta = event.deltaY < 0 ? 1 : -1; 
-        hover.document.update({ 
-            width: Math.max(1, hover.document.width + delta), 
-            height: Math.max(1, hover.document.height + delta) 
-        });
+        hover.document.update({ width: Math.max(1, hover.document.width + delta), height: Math.max(1, hover.document.height + delta) });
     }
 
     static async handleDrop(event) {
@@ -50,18 +39,17 @@ class DragUploadEngine {
         event.stopPropagation();
 
         const t = canvas.stage.worldTransform;
-        const coords = {
-            x: (event.clientX - t.tx) / canvas.stage.scale.x,
-            y: (event.clientY - t.ty) / canvas.stage.scale.y
-        };
+        const coords = { x: (event.clientX - t.tx) / canvas.stage.scale.x, y: (event.clientY - t.ty) / canvas.stage.scale.y };
 
-        // We process files one-by-one, showing a dialog for EACH
+        // Bug Fix: Proper async handling for index gathering
+        const allNames = await this.getCompendiumNames();
+
         let index = 0;
         for (const file of files) {
-            const fileName = file.name.replace(/\.[^/.]+$/, "");
+            const fileName = file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ");
+            const bestMatch = this.findBestMatch(fileName, allNames);
             
-            // This 'await' is the magic—it pauses the loop until you click a button
-            const result = await this.requestImportDetails(file, fileName, index, files.length);
+            const result = await this.requestImportDetails(file, fileName, bestMatch, index, files.length, allNames);
             
             if (result) {
                 const offset = index * 20;
@@ -73,50 +61,80 @@ class DragUploadEngine {
         ui.notifications.info("All imports complete.");
     }
 
-    static async requestImportDetails(file, defaultName, index, total) {
+    static findBestMatch(input, names) {
+        const target = input.toLowerCase().trim();
+        if (names.includes(input)) return input;
+        const fuzzy = names.find(n => n.toLowerCase() === target);
+        if (fuzzy) return fuzzy;
+        const partial = names.find(n => n.toLowerCase().includes(target) || target.includes(n.toLowerCase()));
+        return partial || null;
+    }
+
+    static async requestImportDetails(file, defaultName, bestMatch, index, total, allNames) {
         return new Promise((resolve) => {
-            new Dialog({
-                title: `Import ${index + 1} of ${total}: ${file.name}`,
+            const initialName = bestMatch || defaultName;
+            const isMatch = !!bestMatch;
+            const listId = `list-${index}`; // Unique ID per file to prevent UI ghosting
+
+            const d = new Dialog({
+                title: `Import ${index + 1}/${total}: ${file.name}`,
                 content: `
                     <div style="margin-bottom: 10px;">
                         <label style="display: block; margin-bottom: 5px;"><strong>Asset Name:</strong></label>
-                        <input type="text" id="drag-upload-name" value="${defaultName}" style="width: 100%; margin-bottom: 10px;" autofocus>
+                        <input type="text" id="drag-upload-name" value="${initialName}" list="${listId}" style="width: 100%; border: 2px solid ${isMatch ? '#2ecc71' : '#e67e22'};" autofocus>
+                        <datalist id="${listId}">
+                            ${allNames.map(n => `<option value="${n}">`).join('')}
+                        </datalist>
+                        <p id="match-info" style="font-size: 0.85em; margin-top: 5px; color: ${isMatch ? '#2ecc71' : '#e67e22'};">
+                            ${isMatch ? `✓ Found match: ${bestMatch}` : `⚠ No exact match found.`}
+                        </p>
                     </div>
                 `,
                 buttons: {
-                    actor: { 
-                        icon: '<i class="fas fa-user"></i>', 
-                        label: "Actor", 
-                        callback: (html) => resolve({ type: "actor", name: html.find('#drag-upload-name').val() || defaultName }) 
-                    },
-                    journal: { 
-                        icon: '<i class="fas fa-book-open"></i>', 
-                        label: "Handout", 
-                        callback: (html) => resolve({ type: "journal", name: html.find('#drag-upload-name').val() || defaultName }) 
-                    },
-                    tile: { 
-                        icon: '<i class="fas fa-cubes"></i>', 
-                        label: "Tile", 
-                        callback: (html) => resolve({ type: "tile", name: html.find('#drag-upload-name').val() || defaultName }) 
-                    },
-                    cancel: {
-                        icon: '<i class="fas fa-times"></i>',
-                        label: "Skip",
-                        callback: () => resolve(null)
-                    }
+                    actor: { label: "Actor", callback: (html) => resolve({ type: "actor", name: html.find('#drag-upload-name').val() }) },
+                    journal: { label: "Handout", callback: (html) => resolve({ type: "journal", name: html.find('#drag-upload-name').val() }) },
+                    skip: { label: "Skip", callback: () => resolve(null) }
                 },
                 default: "actor",
-                close: () => resolve(null)
-            }).render(true);
+                render: (html) => {
+                    const input = html.find('#drag-upload-name');
+                    const info = html.find('#match-info');
+                    input.on('input', () => {
+                        const val = input.val();
+                        const match = allNames.find(n => n === val);
+                        if (match) {
+                            input.css("border-color", "#2ecc71");
+                            info.text(`✓ Found match: ${match}`).css("color", "#2ecc71");
+                        } else {
+                            input.css("border-color", "#e67e22");
+                            info.text("⚠ Custom name (Basic Actor)").css("color", "#e67e22");
+                        }
+                    });
+                }
+            });
+            d.render(true);
         });
+    }
+
+    static async getCompendiumNames() {
+        const actorPacks = game.packs.filter(p => p.metadata.type === "Actor");
+        let names = new Set();
+        
+        // Bug Fix: Ensure all indexes are fully loaded before proceeding
+        await Promise.all(actorPacks.map(async (pack) => {
+            const index = await pack.getIndex();
+            index.forEach(e => names.add(e.name));
+        }));
+        
+        return Array.from(names).sort();
     }
 
     static async processSingleFile(file, coords, type, isShift, customName) {
         const source = game.settings.get(this.ID, "fileUploadSource");
         const folderName = type === "actor" ? "Drag Upload: Actors" : "Drag Upload: Handouts";
         const folderType = type === "actor" ? "Actor" : "JournalEntry";
-        
         const serverPath = `uploads/${this.ID}/${type}s`;
+        
         await this.ensureServerDirectory(source, serverPath);
 
         let folderId = null;
@@ -126,13 +144,9 @@ class DragUploadEngine {
             folderId = folder.id;
         }
 
-        try {
-            if (type === "actor") await this.createActor(source, serverPath, file, customName, coords, folderId, isShift);
-            else if (type === "journal") await this.createHandout(source, serverPath, file, customName, coords, folderId);
-            else await this.createTile(source, serverPath, file, coords);
-        } catch (err) {
-            console.error(`${this.ID} | Error:`, err);
-        }
+        if (type === "actor") await this.createActor(source, serverPath, file, customName, coords, folderId, isShift);
+        else if (type === "journal") await this.createHandout(source, serverPath, file, customName, coords, folderId);
+        else await this.createTile(source, serverPath, file, coords);
     }
 
     static async createActor(source, path, file, name, coords, folderId, isShift) {
@@ -142,15 +156,15 @@ class DragUploadEngine {
         let actorData = {
             name: name,
             type: game.system.id === "dnd5e" ? "npc" : Object.keys(CONFIG.Actor.documentClass.metadata.types)[0],
-            img: upload.path,
+            img: upload.path, 
             folder: folderId,
-            prototypeToken: { name: name, texture: { src: upload.path }, displayName: 20 }
+            prototypeToken: { name: name, texture: { src: upload.path }, displayName: 20, actorLink: true }
         };
 
         if (compendiumSource) {
-            actorData = foundry.utils.mergeObject(compendiumSource.toObject(), actorData);
+            const sourceObj = compendiumSource.toObject();
+            actorData = foundry.utils.mergeObject(sourceObj, actorData);
             delete actorData._id;
-            actorData.name = name; 
             actorData.img = upload.path;
             actorData.prototypeToken.texture.src = upload.path;
         }
@@ -168,21 +182,13 @@ class DragUploadEngine {
             pages: [{ name: name, type: "image", src: upload.path }],
             ownership: { default: 2 }
         });
-        await canvas.scene.createEmbeddedDocuments('Note', [{
-            entryId: journal.id, x: coords.x, y: coords.y, texture: { src: "icons/svg/book.svg" }
-        }]);
+        await canvas.scene.createEmbeddedDocuments('Note', [{ entryId: journal.id, x: coords.x, y: coords.y, texture: { src: "icons/svg/book.svg" } }]);
     }
 
     static async createTile(source, path, file, coords) {
         const upload = await FilePicker.upload(source, path, file);
         const tex = await loadTexture(upload.path);
-        await canvas.scene.createEmbeddedDocuments('Tile', [{
-            texture: { src: upload.path },
-            width: tex.width,
-            height: tex.height,
-            x: coords.x,
-            y: coords.y
-        }]);
+        await canvas.scene.createEmbeddedDocuments('Tile', [{ texture: { src: upload.path }, width: tex.width, height: tex.height, x: coords.x, y: coords.y }]);
     }
 
     static async findMonsterStats(name) {
@@ -200,12 +206,14 @@ class DragUploadEngine {
         let current = "";
         for (const p of parts) {
             current += (current ? "/" : "") + p;
-            try { await FilePicker.createDirectory(source, current); } catch(e) {}
+            try { 
+                await FilePicker.createDirectory(source, current); 
+            } catch(e) {
+                // Bug Fix: Ignore error if directory already exists
+            }
         }
     }
 }
 
 Hooks.once("init", () => DragUploadEngine.init());
-Hooks.on("ready", () => { 
-    window.addEventListener("drop", (ev) => DragUploadEngine.handleDrop(ev)); 
-});
+Hooks.on("ready", () => { window.addEventListener("drop", (ev) => DragUploadEngine.handleDrop(ev)); });
