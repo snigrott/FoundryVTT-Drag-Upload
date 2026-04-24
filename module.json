@@ -2,7 +2,7 @@
   "id": "dragupload",
   "title": "Drag Upload",
   "description": "Drag images onto the canvas to create or update Actors and Handouts. Saves and organizes uploads in the assets forlder. Featuring V14 Grid support and smart Actor Linking for Statblock Importers.",
-  "version": "5.3.4",
+  "version": "5.3.5",
   "compatibility": {
     "minimum": "12",
     "verified": "14"
