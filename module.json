@@ -1,11 +1,11 @@
 {
   "id": "dragupload",
   "title": "Drag Upload",
-  "description": "Dragging images or documents onto the canvas to auto create Actors, Journal Entries, or Tiles. Optimized for V13 with Alt+Scroll resizing.",
-  "version": "4.7.2",
+  "description": "Drag images onto the canvas to create or update Actors and Handouts. Featuring V14 Grid support and smart Actor Linking for Statblock Importers.",
+  "version": "5.0.0",
   "compatibility": {
     "minimum": "12",
-    "verified": "13"
+    "verified": "14"
   },
   "authors": [
     {
