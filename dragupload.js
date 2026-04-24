@@ -1,9 +1,9 @@
 /**
- * Drag Upload Engine V5.3.4
+ * Drag Upload Engine V5.3.5
  * Features: 
- * - Smart Compendium Matching: Auto-imports stats if a name matches
- * - Asset Root: /assets/images/[tokens|handouts|tiles]
- * - Alt+Scroll resizing for both Tokens and Tiles
+ * - Fixed: Accurate drop coordinates using canvas.mousePosition
+ * - Smart Compendium Matching & Auto-Import
+ * - Assets Path: /assets/images/[tokens|handouts|tiles]
  */
 
 class DragUploadEngine {
@@ -21,14 +21,13 @@ class DragUploadEngine {
     }
 
     static registerSettings() {
-        const sourceChoices = { "data": "User Data", "s3": "S3 Storage" };
         game.settings.register(this.ID, "fileUploadSource", {
             name: "Upload Source",
             scope: "world",
             config: true,
             type: String,
             default: "data",
-            choices: sourceChoices
+            choices: { "data": "User Data", "s3": "S3 Storage" }
         });
     }
 
@@ -69,9 +68,9 @@ class DragUploadEngine {
         event.preventDefault();
         event.stopPropagation();
 
-        const coords = canvas.app.renderer.events.pointer.getLocalPosition(canvas.stage);
-        
-        // Build the master name list (Sidebar + Compendiums)
+        // FIXED COORDINATES: Gets the exact position on the game map
+        const coords = canvas.mousePosition;
+
         const worldNames = game.actors.map(a => a.name);
         const compendiumNames = await this.getCompendiumNames();
         const allNames = Array.from(new Set([...worldNames, ...compendiumNames])).sort();
@@ -134,14 +133,17 @@ class DragUploadEngine {
 
     static async createTile(path, coords) {
         await canvas.scene.createEmbeddedDocuments('Tile', [{
-            texture: { src: path }, width: canvas.grid.size, height: canvas.grid.size, x: coords.x, y: coords.y
+            texture: { src: path }, 
+            width: canvas.grid.size, 
+            height: canvas.grid.size, 
+            x: coords.x - (canvas.grid.size / 2), 
+            y: coords.y - (canvas.grid.size / 2)
         }]);
     }
 
     static async createOrLinkActor(path, name, coords, isShift) {
         let actor = game.actors.find(a => a.name.toLowerCase() === name.toLowerCase());
 
-        // COMPENDIUM SEARCH LOGIC
         if (!actor) {
             for (let pack of game.packs.filter(p => p.metadata.type === "Actor")) {
                 const index = await pack.getIndex();
@@ -167,8 +169,13 @@ class DragUploadEngine {
             tokenPos.x = snapped.x; tokenPos.y = snapped.y;
         }
 
+        // V14 adjustment: Tokens spawn centered on the mouse
         await canvas.scene.createEmbeddedDocuments('Token', [{
-            name: name, actorId: actor.id, texture: { src: path }, x: tokenPos.x, y: tokenPos.y
+            name: name, 
+            actorId: actor.id, 
+            texture: { src: path }, 
+            x: tokenPos.x - (canvas.grid.size / 2), 
+            y: tokenPos.y - (canvas.grid.size / 2)
         }]);
     }
 
@@ -176,7 +183,9 @@ class DragUploadEngine {
         const journal = await JournalEntry.create({
             name: name, pages: [{ name: name, type: "image", src: { path: path } }], ownership: { default: 3 }
         });
-        await canvas.scene.createEmbeddedDocuments('Note', [{ entryId: journal.id, x: coords.x, y: coords.y, texture: { src: "icons/svg/book.svg" } }]);
+        await canvas.scene.createEmbeddedDocuments('Note', [{ 
+            entryId: journal.id, x: coords.x, y: coords.y, texture: { src: "icons/svg/book.svg" } 
+        }]);
     }
 
     static async getCompendiumNames() {
