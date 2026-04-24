@@ -1,6 +1,6 @@
 /**
  * Drag Upload (Cleaned)
- * Version: 4.7.2
+ * Version: 4.8.0 (V14 Compatible)
  * ID: dragupload
  */
 
@@ -18,7 +18,14 @@ class DragUploadEngine {
     static registerSettings() {
         const sourceChoices = { "data": "User Data", "s3": "S3 Storage" };
         if (typeof ForgeVTT !== "undefined" && ForgeVTT.usingTheForge) sourceChoices["forgevtt"] = "The Forge";
-        game.settings.register(this.ID, "fileUploadSource", { name: "Upload Source", scope: "world", config: true, type: String, default: "data", choices: sourceChoices });
+        game.settings.register(this.ID, "fileUploadSource", { 
+            name: "Upload Source", 
+            scope: "world", 
+            config: true, 
+            type: String, 
+            default: "data", 
+            choices: sourceChoices 
+        });
     }
 
     static _onWheel(event) {
@@ -27,7 +34,12 @@ class DragUploadEngine {
         if (!hover) return;
         event.preventDefault();
         const delta = event.deltaY < 0 ? 1 : -1; 
-        hover.document.update({ width: Math.max(1, hover.document.width + delta), height: Math.max(1, hover.document.height + delta) });
+        
+        // V14 compatibility: Token update logic remains consistent
+        hover.document.update({ 
+            width: Math.max(1, hover.document.width + delta), 
+            height: Math.max(1, hover.document.height + delta) 
+        });
     }
 
     static toTitleCase(str) {
@@ -51,8 +63,8 @@ class DragUploadEngine {
         event.preventDefault();
         event.stopPropagation();
 
-        const t = canvas.stage.worldTransform;
-        const coords = { x: (event.clientX - t.tx) / canvas.stage.scale.x, y: (event.clientY - t.ty) / canvas.stage.scale.y };
+        // V14: Standardized Canvas Coordinate Conversion
+        const coords = canvas.app.renderer.events.pointer.getLocalPosition(canvas.stage);
         const allNames = await this.getCompendiumNames();
 
         let index = 0;
@@ -63,7 +75,7 @@ class DragUploadEngine {
             const result = await this.requestImportDetails(file, fileName, bestMatch, index, files.length, allNames);
             
             if (result) {
-                const offset = index * 20;
+                const offset = index * (canvas.grid.size / 4); // Relative offset based on grid size
                 const finalCoords = { x: coords.x + offset, y: coords.y + offset };
                 await this.processSingleFile(file, finalCoords, result.type, event.shiftKey, result.name);
             }
@@ -113,6 +125,7 @@ class DragUploadEngine {
         const actorPacks = game.packs.filter(p => p.metadata.type === "Actor");
         let names = new Set();
         for (const pack of actorPacks) {
+            // V14 Requirement: Ensure index is loaded
             const index = await pack.getIndex();
             index.forEach(e => names.add(e.name));
         }
@@ -139,16 +152,25 @@ class DragUploadEngine {
         const upload = await FilePicker.upload(source, path, file);
         const compendiumSource = await this.findMonsterStats(name);
         
+        // V14: System-agnostic actor type resolution
+        const actorType = game.system.id === "dnd5e" ? "npc" : Object.keys(CONFIG.Actor.documentClass.metadata.types)[0];
+
         let actorData = {
             name: name,
-            type: game.system.id === "dnd5e" ? "npc" : Object.keys(CONFIG.Actor.documentClass.metadata.types)[0],
+            type: actorType,
             img: upload.path, 
             folder: folderId,
-            prototypeToken: { name: name, texture: { src: upload.path }, displayName: 20, actorLink: false }
+            prototypeToken: { 
+                name: name, 
+                texture: { src: upload.path }, 
+                displayName: CONST.TOKEN_DISPLAY_MODES.HOVER, 
+                actorLink: false 
+            }
         };
 
         if (compendiumSource) {
-            actorData = foundry.utils.mergeObject(compendiumSource.toObject(), actorData);
+            // V14: Use toObject() for merging to avoid Document mutation errors
+            actorData = foundry.utils.mergeObject(compendiumSource.toObject(), actorData, {overwrite: true});
             delete actorData._id;
             actorData.name = name;
             actorData.img = upload.path;
@@ -157,34 +179,49 @@ class DragUploadEngine {
 
         const actor = await Actor.create(actorData);
         
-        // Simple token creation - let Foundry or other modules handle the naming
+        // V14 Grid Snapping Update
+        let tokenPos = { x: coords.x, y: coords.y };
+        if (!isShift) {
+            // In V14, snapping is handled by the grid's getSnappedPoint method
+            const snapped = canvas.grid.getSnappedPoint({x: tokenPos.x, y: tokenPos.y}, {mode: CONST.GRID_SNAPPING_MODES.CENTER});
+            tokenPos.x = snapped.x;
+            tokenPos.y = snapped.y;
+        }
+
         let tokenData = { 
             name: name, 
             actorId: actor.id, 
             texture: { src: upload.path }, 
-            x: coords.x, 
-            y: coords.y 
+            x: tokenPos.x, 
+            y: tokenPos.y 
         };
 
-        if (!isShift) Object.assign(tokenData, canvas.grid.getSnappedPosition(tokenData.x, tokenData.y));
         await canvas.scene.createEmbeddedDocuments('Token', [tokenData]);
     }
 
     static async createHandout(source, path, file, name, coords, folderId) {
         const upload = await FilePicker.upload(source, path, file);
         const journal = await JournalEntry.create({
-            name: name, folder: folderId,
-            pages: [{ name: name, type: "image", src: upload.path }],
-            ownership: { default: 2 }
+            name: name, 
+            folder: folderId,
+            pages: [{ name: name, type: "image", src: { path: upload.path } }],
+            ownership: { default: CONST.DOCUMENT_OWNERSHIP_LEVELS.OBSERVER }
         });
-        await canvas.scene.createEmbeddedDocuments('Note', [{ entryId: journal.id, x: coords.x, y: coords.y, texture: { src: "icons/svg/book.svg" } }]);
+
+        await canvas.scene.createEmbeddedDocuments('Note', [{ 
+            entryId: journal.id, 
+            x: coords.x, 
+            y: coords.y, 
+            texture: { src: "icons/svg/book.svg" } 
+        }]);
     }
 
     static async findMonsterStats(name) {
+        const targetSlug = name.slugify({strict: true});
         const packs = game.packs.filter(p => p.metadata.type === "Actor");
         for (let pack of packs) {
             const index = await pack.getIndex({fields: ["name"]});
-            const match = index.find(e => e.name.toLowerCase() === name.toLowerCase());
+            const match = index.find(e => e.name.slugify({strict: true}) === targetSlug);
             if (match) return await pack.getDocument(match._id);
         }
         return null;
@@ -201,4 +238,6 @@ class DragUploadEngine {
 }
 
 Hooks.once("init", () => DragUploadEngine.init());
-Hooks.on("ready", () => { window.addEventListener("drop", (ev) => DragUploadEngine.handleDrop(ev)); });
+Hooks.on("ready", () => { 
+    window.addEventListener("drop", (ev) => DragUploadEngine.handleDrop(ev)); 
+});
