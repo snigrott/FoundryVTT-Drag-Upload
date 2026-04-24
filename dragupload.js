@@ -1,25 +1,17 @@
 /**
- * Drag Upload Engine V5.3.0
+ * Drag Upload Engine V5.3.2
  * Features: 
- * - Web Standard Slugification (Hyphens for Debian/Web compatibility)
- * - V14 Canvas Event Interception (Fixed missing prompt)
- * - Robust Sidebar-to-File Linking for Statblock Importer
- * - Alt+Scroll Token Resizing
+ * - Asset Root: /assets/images/[tokens|handouts|tiles]
+ * - Added Tile Support for environmental objects
+ * - Web Standard Slugification (Debian/Web compatibility)
  */
 
 class DragUploadEngine {
     static ID = "dragupload";
 
-    /**
-     * Initialize listeners and force browser to allow drops on the canvas.
-     */
     static init() {
         this.registerSettings();
-        
-        // Listener for Alt+Scroll to resize tokens
         window.addEventListener("wheel", (ev) => this._onWheel(ev), { passive: false });
-
-        // V14 FIX: Intercept dragover so the browser knows the canvas is a valid drop target
         window.addEventListener("dragover", (ev) => {
             if (ev.dataTransfer.types.includes("Files")) {
                 ev.preventDefault();
@@ -30,10 +22,6 @@ class DragUploadEngine {
 
     static registerSettings() {
         const sourceChoices = { "data": "User Data", "s3": "S3 Storage" };
-        if (typeof ForgeVTT !== "undefined" && ForgeVTT.usingTheForge) {
-            sourceChoices["forgevtt"] = "The Forge";
-        }
-
         game.settings.register(this.ID, "fileUploadSource", {
             name: "Upload Source",
             hint: "Storage location for your Debian server.",
@@ -45,21 +33,15 @@ class DragUploadEngine {
         });
     }
 
-    /**
-     * Web Standard Slugification: Converts "Ancient Red Dragon" to "ancient-red-dragon"
-     */
     static slugify(text) {
         return text.toString().toLowerCase().trim()
-            .replace(/\s+/g, '-')           // Spaces to -
-            .replace(/[^\w\-]+/g, '')       // Remove non-word chars
-            .replace(/\-\-+/g, '-')         // Collapse multiple -
-            .replace(/^-+/, '')             // Trim start
-            .replace(/-+$/, '');            // Trim end
+            .replace(/\s+/g, '-')           
+            .replace(/[^\w\-]+/g, '')       
+            .replace(/\-\-+/g, '-')         
+            .replace(/^-+/, '')             
+            .replace(/-+$/, '');            
     }
 
-    /**
-     * Generates a unique, web-safe filename for your Debian filesystem.
-     */
     static getUniqueFile(file) {
         const timestamp = Date.now();
         const parts = file.name.split('.');
@@ -69,26 +51,10 @@ class DragUploadEngine {
         return new File([file], newName, { type: file.type, lastModified: file.lastModified });
     }
 
-    /**
-     * Logic to find existing actors in the World Sidebar or Compendiums.
-     */
-    static findBestMatch(input, names) {
-        const targetSlug = this.slugify(input);
-        // 1. Try exact slug match
-        let match = names.find(n => this.slugify(n) === targetSlug);
-        // 2. Try partial slug match
-        if (!match) {
-            match = names.find(n => {
-                const nSlug = this.slugify(n);
-                return nSlug.includes(targetSlug) || targetSlug.includes(nSlug);
-            });
-        }
-        return match || null;
-    }
-
     static _onWheel(event) {
         if (!event.altKey) return;
-        const hover = canvas.tokens.hover;
+        // Updated: now catches tiles as well as tokens
+        const hover = canvas.tokens.hover || canvas.tiles.hover;
         if (!hover) return;
         event.preventDefault();
         const delta = event.deltaY < 0 ? 1 : -1; 
@@ -98,34 +64,21 @@ class DragUploadEngine {
         });
     }
 
-    /**
-     * Main event handler for drops.
-     */
     static async handleDrop(event) {
         if (!canvas.ready || !game.user.isGM) return;
-        
         const files = event.dataTransfer.files;
         if (!files?.length) return;
 
-        // V14 FIX: Stop event propagation to ensure our dialog triggers
         event.preventDefault();
         event.stopPropagation();
 
-        // Get V14 Canvas coordinates
         const coords = canvas.app.renderer.events.pointer.getLocalPosition(canvas.stage);
-
-        // Gather all names for the Autocomplete/Suggestion list
-        const worldNames = game.actors.map(a => a.name);
-        const compendiumNames = await this.getCompendiumNames();
-        const allNames = Array.from(new Set([...worldNames, ...compendiumNames])).sort();
+        const allNames = game.actors.map(a => a.name).sort();
 
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
             const rawName = file.name.replace(/\.[^/.]+$/, "");
-            const bestMatch = this.findBestMatch(rawName, allNames);
-            
-            // Trigger the Dialog (Wait for user input)
-            const result = await this.requestImportDetails(file, rawName, bestMatch, i, files.length, allNames);
+            const result = await this.requestImportDetails(file, rawName, i, files.length, allNames);
             
             if (result) {
                 const offset = i * (canvas.grid.size / 5);
@@ -135,21 +88,20 @@ class DragUploadEngine {
         }
     }
 
-    static async requestImportDetails(file, defaultName, bestMatch, index, total, allNames) {
+    static async requestImportDetails(file, defaultName, index, total, allNames) {
         return new Promise((resolve) => {
-            const initialName = bestMatch || defaultName;
             const listId = `list-${Date.now()}`;
             new Dialog({
                 title: `Drag Upload ${index + 1}/${total}`,
                 content: `
                     <div style="margin-bottom: 10px;">
                         <label><strong>Target Name:</strong></label>
-                        <input type="text" id="name-input" value="${initialName}" list="${listId}" 
-                               style="width: 100%; border: 2px solid ${bestMatch ? '#2ecc71' : '#e67e22'}">
+                        <input type="text" id="name-input" value="${defaultName}" list="${listId}" style="width: 100%;">
                         <datalist id="${listId}">${allNames.map(n => `<option value="${n}">`).join('')}</datalist>
                     </div>`,
                 buttons: {
                     actor: { label: "Actor", callback: (html) => resolve({ type: "actor", name: html.find('#name-input').val() }) },
+                    tile: { label: "Tile", callback: (html) => resolve({ type: "tile", name: html.find('#name-input').val() }) },
                     journal: { label: "Handout", callback: (html) => resolve({ type: "journal", name: html.find('#name-input').val() }) },
                     skip: { label: "Skip", callback: () => resolve(null) }
                 },
@@ -161,7 +113,13 @@ class DragUploadEngine {
 
     static async processSingleFile(file, coords, type, isShift, customName) {
         const source = game.settings.get(this.ID, "fileUploadSource");
-        const serverPath = `uploads/${this.ID}/${type}s`;
+        
+        // Logical Sorting
+        let subFolder = "tokens";
+        if (type === "journal") subFolder = "handouts";
+        if (type === "tile") subFolder = "tiles";
+        
+        const serverPath = `assets/images/${subFolder}`;
         
         await this.ensureServerDirectory(source, serverPath);
         const uniqueFile = this.getUniqueFile(file);
@@ -169,26 +127,33 @@ class DragUploadEngine {
         
         if (type === "actor") {
             await this.createOrLinkActor(upload.path, customName, coords, isShift);
+        } else if (type === "tile") {
+            await this.createTile(upload.path, coords);
         } else {
             await this.createHandout(upload.path, customName, coords);
         }
     }
 
-    static async createOrLinkActor(path, name, coords, isShift) {
-        // Priority 1: Find actor in Sidebar (Statblock Importer results)
-        let actor = game.actors.find(a => a.name.toLowerCase() === name.toLowerCase());
+    static async createTile(path, coords) {
+        await canvas.scene.createEmbeddedDocuments('Tile', [{
+            texture: { src: path },
+            width: canvas.grid.size,
+            height: canvas.grid.size,
+            x: coords.x,
+            y: coords.y
+        }]);
+    }
 
+    static async createOrLinkActor(path, name, coords, isShift) {
+        let actor = game.actors.find(a => a.name.toLowerCase() === name.toLowerCase());
         if (actor) {
-            // Link image to existing actor data
             await actor.update({ img: path, "prototypeToken.texture.src": path });
         } else {
-            // Create new if not found
-            const actorType = game.system.id === "dnd5e" ? "npc" : "character";
             actor = await Actor.create({
                 name: name,
-                type: actorType,
+                type: "npc",
                 img: path,
-                prototypeToken: { name: name, texture: { src: path }, actorLink: false }
+                prototypeToken: { name: name, texture: { src: path } }
             });
         }
 
@@ -200,11 +165,7 @@ class DragUploadEngine {
         }
 
         await canvas.scene.createEmbeddedDocuments('Token', [{
-            name: name,
-            actorId: actor.id,
-            texture: { src: path },
-            x: tokenPos.x,
-            y: tokenPos.y
+            name: name, actorId: actor.id, texture: { src: path }, x: tokenPos.x, y: tokenPos.y
         }]);
     }
 
@@ -212,21 +173,11 @@ class DragUploadEngine {
         const journal = await JournalEntry.create({
             name: name,
             pages: [{ name: name, type: "image", src: { path: path } }],
-            ownership: { default: CONST.DOCUMENT_OWNERSHIP_LEVELS.OBSERVER }
+            ownership: { default: 3 } // Observer for all players
         });
         await canvas.scene.createEmbeddedDocuments('Note', [{ 
             entryId: journal.id, x: coords.x, y: coords.y, texture: { src: "icons/svg/book.svg" } 
         }]);
-    }
-
-    static async getCompendiumNames() {
-        const packs = game.packs.filter(p => p.metadata.type === "Actor");
-        let names = new Set();
-        for (const p of packs) {
-            const index = await p.getIndex();
-            index.forEach(e => names.add(e.name));
-        }
-        return Array.from(names);
     }
 
     static async ensureServerDirectory(source, path) {
@@ -240,8 +191,6 @@ class DragUploadEngine {
 }
 
 Hooks.once("init", () => DragUploadEngine.init());
-
-// V14 Capture Hook: Use 'true' for capture phase to beat Foundry's internal listeners
 Hooks.on("ready", () => {
     window.addEventListener("drop", (ev) => DragUploadEngine.handleDrop(ev), true);
 });
