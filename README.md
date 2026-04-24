@@ -1,40 +1,33 @@
-# Drag Upload (V13 Compatible)
+# Drag Upload (V14 Compatible)
 
-* This is a significant refactoring of the original module by **Cody Swendrowski** for Foundry Virtual Table Top Version 13.
-* Due to significant internal Data Model compatibility changes between FoundryVTT Version 11 and later releases this module will NOT work with FoundryVTT versions prior to 12. Use the Original Version: [FoundryVTT-Drag-Upload](https://github.com/cswendrowski/FoundryVTT-Drag-Upload) for earlier releases of FoundryVTT.
+* This is a significant refactoring of the original module by **Cody Swendrowski** for Foundry Virtual Table Top Version 14.
+* Version 5.0.0 is built to be backward compatible with **FoundryVTT Versions 12, 13, and 14**.
+* For legacy support (V11 and earlier), please use the original project: [FoundryVTT-Drag-Upload](https://github.com/cswendrowski/FoundryVTT-Drag-Upload).
   
 ## Description
-Adds the ability to drag files directly from your computer or a web browser onto the Foundry VTT canvas to automatically create Tokens, Tiles, Journal Pins, and Ambient Audio.
+Drag image files directly from your computer or a web browser onto the Foundry VTT canvas to instantly create or update Actors and Handouts. 
 
-## Features
-* **Smart Layer Detection:** The module creates different documents based on your active layer:
-    * **Token Layer:** Creates a new Actor and places a Token.
-    * **Background/Foreground Layer:** Creates a Tile.
-    * **Notes Layer:** Creates a Journal Entry and a Note pin.
+## Key Features
+* **Smart Actor Linking (New!):** Specifically designed to work with the **5e Statblock Importer**. If you drag an image for an Actor that already exists in your sidebar, the module updates that Actor's portrait and token art instead of creating a duplicate.
+* **Fuzzy Name Matching:** Uses Foundry’s internal `slugify` logic to match filenames to Actor names (e.g., `ancient-red-dragon.jpg` will automatically suggest a match for the actor `Ancient Red Dragon`).
+* **V14 Ready:** Fully updated to handle the new coordinate system and grid snapping APIs introduced in Foundry VTT Version 14.
+* **Instant Scaling (Alt + Scroll):** Hover over any token, hold **Alt**, and scroll your mouse wheel to dynamically resize it in 1-grid increments without opening a sheet.
 * **Web Import:** Drag images directly from your browser to upload and place them instantly (Chromium-based browsers recommended).
-* **V13 Optimized:** Uses the modern Document Data Model and `worldTransform` coordinate math for high performance and perfect placement.
 
-## V13 Refactor Highlights
-* **Zero Legacy Bloat:** Removed all compatibility code for versions 9, 10, and 11, resulting in a script half the size of the original.
-* **Data Model Compliance:** Fully updated to use `prototypeToken.texture` and modern Document creation methods.
-* **Stale Data Fix:** Implemented scoped variable resets to prevent "sticky" images when dragging multiple different web assets in a single session.
-* **Logging:** Added structured console logging for easier troubleshooting of file uploads and coordinate mapping.
-
-* Instant Scaling (Alt + Scroll): Hover over any token, hold Alt, and scroll to dynamically resize it in 1-grid increments.
-
-* Smart UI Protection: Safely handles global drops. Dragging images onto character sheets or the sidebar will trigger default Foundry behavior, while dragging onto the map triggers the module.
-
-* Chat Notifications: Automatically posts a clickable link to the chat log for every new Actor or Handout created.
-
-* Contextual Creation: Automatically creates a Journal Handout if the Journal Notes tool is active, or an Actor Token for all other tools.
+## Technical Highlights
+* **Modern Pointer Logic:** Replaced legacy `worldTransform` math with the modern `getLocalPosition` API for pixel-perfect placement accuracy on any scene scale.
+* **Unified Selection Dialog:** A clean, intuitive pop-up allows you to confirm the asset name and choose between an **Actor** (Token) or a **Journal Entry** (Handout) for every drop.
+* **Data Model Compliance:** Fully updated for the modern Data Model, utilizing `prototypeToken.texture` and `.toObject()` for safe, crash-free document manipulation.
+* **Smart File Management:** Automatically generates unique filenames using timestamps to prevent accidental overwriting of existing server assets.
 
 ## Installation
 To install this version, use the following manifest URL in your Foundry VTT Add-on Modules tab:
 `https://github.com/snigrott/FoundryVTT-Drag-Upload/releases/download/latest/module.json`
 
 ## Usage Tips
-* **Snap to Grid:** Assets snap to the grid by default. Hold **Shift** while dropping to bypass snapping.
-* **Hidden Assets:** Hold **Alt** while dropping to create the Token or Tile as "Hidden" from players.
+* **Snap to Grid:** Assets snap to the grid center by default. Hold **Shift** while dropping to bypass snapping and place the asset exactly where your mouse is.
+* **Sidebar Organization:** If a match isn't found in your Sidebar, new Actors are created in a folder named `Drag Upload: Actors`. You can move them to your own folders; the module will still find and update them later!
+* **Multiple Files:** Dragging multiple files at once will stagger them slightly on the canvas so they don't land directly on top of each other.
 
 ---
-*Maintained for V13 by Brian Smith (Jan 2026)*
+*Maintained for V14 by Brian Smith (April 2026)*
