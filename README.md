@@ -1,7 +1,7 @@
 # Drag Upload (V14 Compatible)
 
 * This is a significant refactoring of the original module by **Cody Swendrowski** for Foundry Virtual Table Top Version 14.
-* Version 5.0.0 is built to be backward compatible with **FoundryVTT Versions 12, 13, and 14**.
+* Version 5.x is built to be backward compatible with **FoundryVTT Versions 12, 13, and 14**.
 * For legacy support (V11 and earlier), please use the original project: [FoundryVTT-Drag-Upload](https://github.com/cswendrowski/FoundryVTT-Drag-Upload).
   
 ## Description
