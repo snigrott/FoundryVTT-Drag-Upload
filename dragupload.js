@@ -1,8 +1,9 @@
 /**
- * Drag Upload Engine V5.4.1 (Scene Fix Only)
+ * Drag Upload Engine V5.4.3 (Bulletproof Scene Sync)
  * Features: 
- * - Fixed: Scene background texture assignment & resolution decoding
- * - Assets Path: /assets/battlemaps/ (maps) & /assets/images/[tokens|handouts|tiles]
+ * - Two-stage database write for complete core schema safety
+ * - WebGL pre-loading guard to guarantee background image display
+ * - Safe target folder structure: assets/battlemaps & assets/images/
  */
 
 class DragUploadEngine {
@@ -139,7 +140,7 @@ class DragUploadEngine {
     }
 
     static async createScene(path, name) {
-        // Load image and wait for dimensions to resolve in memory
+        // Step 1: Resolve image dimensions safely
         const dimensions = await new Promise((resolve) => {
             const img = new Image();
             img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
@@ -150,11 +151,11 @@ class DragUploadEngine {
         const width = dimensions.width || 4000;
         const height = dimensions.height || 3000;
 
+        // Step 2: Create base document
         const scene = await Scene.create({
             name: name,
             width: width,
             height: height,
-            background: { src: path },
             grid: { 
                 type: 1, 
                 size: 100 
@@ -162,17 +163,40 @@ class DragUploadEngine {
             padding: 0.25
         });
 
-        // Sync fallback to ensure texture binding across core schema versions
-        if (!scene.background?.src) {
-            await scene.update({ "background.src": path });
+        // Step 3: Explicitly commit both key structures to guarantee database schema write
+        await scene.update({
+            "background.src": path,
+            "background": { src: path }
+        });
+
+        // Step 4: Pre-load texture into Foundry WebGL cache prior to opening dialog
+        try {
+            if (typeof TextureLoader !== "undefined" && TextureLoader.loader?.loadTexture) {
+                await TextureLoader.loader.loadTexture(path);
+            } else if (typeof canvas.loadTexture === "function") {
+                await canvas.loadTexture(path);
+            }
+        } catch (e) {
+            console.warn("DragUploadEngine | WebGL pre-load notice:", e);
         }
 
+        // Step 5: Render Dialog
         new Dialog({
             title: "Scene Created",
             content: `<p>Created Scene <strong>${name}</strong> in <code>assets/battlemaps/</code> (${width}x${height}px). View it now?</p>`,
             buttons: {
-                view: { label: "View Scene", callback: () => scene.view() },
-                activate: { label: "Activate Scene", callback: () => scene.activate() },
+                view: { 
+                    label: "View Scene", 
+                    callback: async () => {
+                        await scene.view();
+                    } 
+                },
+                activate: { 
+                    label: "Activate Scene", 
+                    callback: async () => {
+                        await scene.activate();
+                    } 
+                },
                 close: { label: "Stay Here", callback: () => {} }
             },
             default: "view"
