@@ -1,9 +1,10 @@
 /**
- * Drag Upload Engine V5.3.5
+ * Drag Upload Engine V5.4.1
  * Features: 
  * - Fixed: Accurate drop coordinates using canvas.mousePosition
  * - Smart Compendium Matching & Auto-Import
- * - Assets Path: /assets/images/[tokens|handouts|tiles]
+ * - Scene / Background Map Creation
+ * - Assets Path: /assets/battlemaps/ (maps) & /assets/images/[tokens|handouts|tiles]
  */
 
 class DragUploadEngine {
@@ -68,7 +69,6 @@ class DragUploadEngine {
         event.preventDefault();
         event.stopPropagation();
 
-        // FIXED COORDINATES: Gets the exact position on the game map
         const coords = canvas.mousePosition;
 
         const worldNames = game.actors.map(a => a.name);
@@ -110,7 +110,8 @@ class DragUploadEngine {
                 buttons: {
                     actor: { label: "Actor", callback: (html) => resolve({ type: "actor", name: html.find('#name-input').val() }) },
                     tile: { label: "Tile", callback: (html) => resolve({ type: "tile", name: html.find('#name-input').val() }) },
-                    journal: { label: "Handout", callback: (html) => resolve({ type: "journal", name: html.find('#name-input').val() }) }
+                    journal: { label: "Handout", callback: (html) => resolve({ type: "journal", name: html.find('#name-input').val() }) },
+                    scene: { label: "New Map / Scene", callback: (html) => resolve({ type: "scene", name: html.find('#name-input').val() }) }
                 },
                 default: "actor",
                 close: () => resolve(null)
@@ -120,15 +121,58 @@ class DragUploadEngine {
 
     static async processSingleFile(file, coords, type, isShift, customName) {
         const source = game.settings.get(this.ID, "fileUploadSource");
-        let subFolder = type === "journal" ? "handouts" : (type === "tile" ? "tiles" : "tokens");
-        const serverPath = `assets/images/${subFolder}`;
+        
+        // Custom path routing: maps go to assets/battlemaps, others stay in assets/images/
+        let serverPath = "assets/images/tokens";
+        if (type === "scene") {
+            serverPath = "assets/battlemaps";
+        } else if (type === "journal") {
+            serverPath = "assets/images/handouts";
+        } else if (type === "tile") {
+            serverPath = "assets/images/tiles";
+        }
         
         await this.ensureServerDirectory(source, serverPath);
         const upload = await FilePicker.upload(source, serverPath, this.getUniqueFile(file));
         
         if (type === "actor") await this.createOrLinkActor(upload.path, customName, coords, isShift);
         else if (type === "tile") await this.createTile(upload.path, coords);
-        else await this.createHandout(upload.path, customName, coords);
+        else if (type === "journal") await this.createHandout(upload.path, customName, coords);
+        else if (type === "scene") await this.createScene(upload.path, customName);
+    }
+
+    static async createScene(path, name) {
+        const img = new Image();
+        img.src = path;
+        
+        try {
+            await img.decode();
+        } catch (e) {
+            console.warn("DragUploadEngine | Could not pre-decode image dimensions, using fallbacks.", e);
+        }
+
+        const width = img.naturalWidth || 4000;
+        const height = img.naturalHeight || 3000;
+
+        const scene = await Scene.create({
+            name: name,
+            background: { src: path },
+            width: width,
+            height: height,
+            grid: { type: 1, size: 100 },
+            padding: 0.25
+        });
+
+        new Dialog({
+            title: "Scene Created",
+            content: `<p>Created Scene <strong>${name}</strong> in <code>assets/battlemaps/</code> (${width}x${height}px). View it now?</p>`,
+            buttons: {
+                view: { label: "View Scene", callback: () => scene.view() },
+                activate: { label: "Activate Scene", callback: () => scene.activate() },
+                close: { label: "Stay Here", callback: () => {} }
+            },
+            default: "view"
+        }).render(true);
     }
 
     static async createTile(path, coords) {
@@ -169,7 +213,6 @@ class DragUploadEngine {
             tokenPos.x = snapped.x; tokenPos.y = snapped.y;
         }
 
-        // V14 adjustment: Tokens spawn centered on the mouse
         await canvas.scene.createEmbeddedDocuments('Token', [{
             name: name, 
             actorId: actor.id, 
