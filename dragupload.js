@@ -1,9 +1,7 @@
 /**
- * Drag Upload Engine V5.4.1
+ * Drag Upload Engine V5.4.1 (Scene Fix Only)
  * Features: 
- * - Fixed: Accurate drop coordinates using canvas.mousePosition
- * - Smart Compendium Matching & Auto-Import
- * - Scene / Background Map Creation
+ * - Fixed: Scene background texture assignment & resolution decoding
  * - Assets Path: /assets/battlemaps/ (maps) & /assets/images/[tokens|handouts|tiles]
  */
 
@@ -122,7 +120,6 @@ class DragUploadEngine {
     static async processSingleFile(file, coords, type, isShift, customName) {
         const source = game.settings.get(this.ID, "fileUploadSource");
         
-        // Custom path routing: maps go to assets/battlemaps, others stay in assets/images/
         let serverPath = "assets/images/tokens";
         if (type === "scene") {
             serverPath = "assets/battlemaps";
@@ -142,26 +139,33 @@ class DragUploadEngine {
     }
 
     static async createScene(path, name) {
-        const img = new Image();
-        img.src = path;
-        
-        try {
-            await img.decode();
-        } catch (e) {
-            console.warn("DragUploadEngine | Could not pre-decode image dimensions, using fallbacks.", e);
-        }
+        // Load image and wait for dimensions to resolve in memory
+        const dimensions = await new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+            img.onerror = () => resolve({ width: 4000, height: 3000 });
+            img.src = path;
+        });
 
-        const width = img.naturalWidth || 4000;
-        const height = img.naturalHeight || 3000;
+        const width = dimensions.width || 4000;
+        const height = dimensions.height || 3000;
 
         const scene = await Scene.create({
             name: name,
-            background: { src: path },
             width: width,
             height: height,
-            grid: { type: 1, size: 100 },
+            background: { src: path },
+            grid: { 
+                type: 1, 
+                size: 100 
+            },
             padding: 0.25
         });
+
+        // Sync fallback to ensure texture binding across core schema versions
+        if (!scene.background?.src) {
+            await scene.update({ "background.src": path });
+        }
 
         new Dialog({
             title: "Scene Created",
